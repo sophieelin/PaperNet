@@ -2,10 +2,10 @@ import type { Edge, Node } from "@xyflow/react";
 import type { CitationSelection, GraphNodeData, ResearchPaper } from "@/lib/papers";
 
 const SEED_COLUMNS = 5;
-const SEED_X_GAP = 360;
-const SEED_Y_GAP = 300;
-const SEED_TOP_Y = -520;
-const OCCUPANCY_CELL = 180;
+const SEED_X_GAP = 380;
+const SEED_Y_GAP = 280;
+const SEED_TOP_Y = -480;
+const OCCUPANCY_CELL = 260;
 
 const hashCode = (value: string) =>
   [...value].reduce((acc, char) => (acc * 31 + char.charCodeAt(0)) >>> 0, 7);
@@ -46,21 +46,9 @@ const makeNode = (
   kind: GraphNodeData["kind"],
 ): Node<GraphNodeData> => ({
   id: paper.id,
-  data: { label: paper.title, subtitle: paper.year?.toString(), kind },
+  type: "paper",
+  data: { label: paper.title, subtitle: paper.year?.toString(), kind, paper },
   position,
-  style: {
-    width: 84,
-    height: 84,
-    borderRadius: "999px",
-    border: kind === "seed" ? "1px solid #111" : "1px solid #64748b",
-    background: kind === "seed" ? "#ffffff" : "#f8fafc",
-    color: "#111",
-    fontSize: 10,
-    display: "grid",
-    placeItems: "center",
-    textAlign: "center",
-    padding: 8,
-  },
 });
 
 const seedGridPosition = (index: number, total: number) => {
@@ -153,7 +141,7 @@ export function buildCitationGraph(
       target: child.id,
       type: "smoothstep" as const,
       animated: false,
-      style: { stroke: "#94a3b8", strokeWidth: 1 },
+      style: { stroke: "#94a3b8", strokeWidth: 1.25 },
     })),
   );
 

@@ -23,5 +23,6 @@ export type GraphNodeData = {
   label: string;
   subtitle?: string;
   kind: "seed" | "citation";
+  paper: ResearchPaper;
 };
 
