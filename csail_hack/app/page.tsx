@@ -209,11 +209,14 @@ function StatusPill({
 
 export default function Home() {
   const [query, setQuery] = useState("");
+  const [activeQuery, setActiveQuery] = useState("");
   const [runId, setRunId] = useState("");
   const [graph, setGraph] = useState<GraphPayload>({ nodes: [], edges: [] });
   const [phase, setPhase] = useState<Phase>("idle");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [summaryStatus, setSummaryStatus] = useState("");
+  const [runningSummaryCards, setRunningSummaryCards] = useState(false);
   const [flowInstance, setFlowInstance] =
     useState<ReactFlowInstance | null>(null);
   const [selected, setSelected] = useState<ResearchPaper | null>(null);
@@ -246,6 +249,7 @@ export default function Home() {
         if (!seedsRes.ok)
           throw new Error(seedsData.error ?? "Failed to generate seeds");
         setRunId(seedsData.runId);
+        setActiveQuery(nextQuery);
         setGraph(seedsData.graph);
         setPhase("seeds");
 
@@ -281,6 +285,27 @@ export default function Home() {
   const onExample = (example: string) => {
     setQuery(example);
     void runQuery(example);
+  };
+
+  const runSummaryCards = async () => {
+    if (!runId || runningSummaryCards) return;
+    setRunningSummaryCards(true);
+    setSummaryStatus("");
+    setError("");
+    try {
+      const response = await fetch("/api/research/summary-card", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ runId, query: activeQuery || query }),
+      });
+      const data = (await response.json()) as { error?: string; processed?: number };
+      if (!response.ok) throw new Error(data.error ?? "Failed to run summary cards");
+      setSummaryStatus(`Summary cards complete (${data.processed ?? 0} papers).`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unexpected error");
+    } finally {
+      setRunningSummaryCards(false);
+    }
   };
 
   const showEmptyState = !loading && graph.nodes.length === 0;
@@ -409,6 +434,14 @@ export default function Home() {
               "Map"
             )}
           </button>
+          <button
+            type="button"
+            onClick={() => void runSummaryCards()}
+            disabled={loading || runningSummaryCards || !runId || phase !== "citations"}
+            className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 text-xs font-medium text-slate-700 transition hover:border-slate-500 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {runningSummaryCards ? "Running..." : "Summary Card"}
+          </button>
         </form>
 
         <div className="pointer-events-none mx-auto mt-2 flex max-w-3xl items-center justify-between gap-3 px-2 text-[11px] text-slate-500">
@@ -430,6 +463,9 @@ export default function Home() {
             <span className="shrink-0 text-slate-500">
               Stage 2 of 2 · Semantic Scholar + arXiv
             </span>
+          )}
+          {!loading && summaryStatus && (
+            <span className="shrink-0 text-emerald-600">{summaryStatus}</span>
           )}
         </div>
       </section>

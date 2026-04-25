@@ -1,7 +1,5 @@
-import { execFile } from "node:child_process";
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { promisify } from "node:util";
 import { runFiguresAgent } from "./figures";
 import { runMethodologyAgent } from "./methodology";
 import { runSummaryAgent } from "./summary";
@@ -32,7 +30,74 @@ const safeSlug = (value: string) =>
     .replace(/(^-|-$)/g, "")
     .slice(0, 80);
 
-const execFileAsync = promisify(execFile);
+const dataRoot = () =>
+  path.join(
+    process.cwd(),
+    path.basename(process.cwd()) === "csail_hack" ? "data" : path.join("csail_hack", "data"),
+  );
+
+const ensurePromiseWithResolvers = () => {
+  const promiseCtor = Promise as typeof Promise & {
+    withResolvers?: <T>() => {
+      promise: Promise<T>;
+      resolve: (value: T | PromiseLike<T>) => void;
+      reject: (reason?: unknown) => void;
+    };
+  };
+  if (typeof promiseCtor.withResolvers === "function") return;
+  promiseCtor.withResolvers = <T>() => {
+    let resolve!: (value: T | PromiseLike<T>) => void;
+    let reject!: (reason?: unknown) => void;
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  };
+};
+
+async function extractPdfTextRobust(pdfBytes: Buffer): Promise<string> {
+  const failures: string[] = [];
+  try {
+    ensurePromiseWithResolvers();
+    const { default: PDFParse } = await import("pdf-parse2");
+    const parser = new PDFParse();
+    const parsed = await parser.loadPDF(pdfBytes);
+    const text = parsed?.text?.trim() ?? "";
+    if (text) return text;
+    failures.push("pdf-parse2 returned empty text");
+  } catch (error) {
+    failures.push(`pdf-parse2 failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  try {
+    const PDFParser = (await import("pdf2json")).default;
+    const text = await new Promise<string>((resolve, reject) => {
+      const parser = new PDFParser();
+      parser.on("pdfParser_dataError", (errMsg: Error | { parserError: Error }) => {
+        if (errMsg instanceof Error) return reject(errMsg);
+        return reject(errMsg.parserError ?? new Error("pdf2json parse error"));
+      });
+      parser.on("pdfParser_dataReady", (pdfData: { Pages?: Array<{ Texts?: Array<{ R?: Array<{ T?: string }> }> }> }) => {
+        const pages = (pdfData.Pages ?? []).map((page) =>
+          (page.Texts ?? [])
+            .flatMap((t) => t.R ?? [])
+            .map((r) => decodeURIComponent(r.T ?? ""))
+            .join(" ")
+            .trim(),
+        );
+        resolve(pages.filter(Boolean).join("\n\f\n").trim());
+      });
+      parser.parseBuffer(pdfBytes);
+    });
+    if (text) return text;
+    failures.push("pdf2json returned empty text");
+  } catch (error) {
+    failures.push(`pdf2json failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  throw new Error(failures.join(" | "));
+}
 
 export async function fetchArxivHtmlContent(arxivUrl: string): Promise<string> {
   const response = await fetch(toArxivHtmlUrl(arxivUrl), { cache: "no-store" });
@@ -41,20 +106,20 @@ export async function fetchArxivHtmlContent(arxivUrl: string): Promise<string> {
 }
 
 async function resolveQueryFolder(query?: string, runId?: string): Promise<string> {
-  const dataRoot = path.join(process.cwd(), "csail_hack", "data");
-  if (runId) return path.join(dataRoot, runId);
+  const root = dataRoot();
+  if (runId) return path.join(root, runId);
   const slug = safeSlug(query ?? "");
-  if (!slug) return path.join(dataRoot, "agent-pdf");
+  if (!slug) return path.join(root, "agent-pdf");
 
-  const entries = await readdir(dataRoot, { withFileTypes: true }).catch(() => []);
+  const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
   const candidates = entries
     .filter((entry) => entry.isDirectory() && entry.name.startsWith(`${slug}-`))
     .map((entry) => entry.name);
-  if (candidates.length === 0) return path.join(dataRoot, slug);
+  if (candidates.length === 0) return path.join(root, slug);
 
   const withTimes = await Promise.all(
     candidates.map(async (name) => {
-      const full = path.join(dataRoot, name);
+      const full = path.join(root, name);
       const s = await stat(full);
       return { full, mtimeMs: s.mtimeMs };
     }),
@@ -76,23 +141,9 @@ async function fetchArxivPdfFallbackContent(arxivUrl: string, query?: string, ru
   const pdfPath = path.join(outDir, "source.pdf");
   const textPath = path.join(outDir, "text.txt");
   await writeFile(pdfPath, pdfBytes);
-
-  const py = `
-import sys, os
-import fitz
-
-pdf_path, out_dir = sys.argv[1], sys.argv[2]
-doc = fitz.open(pdf_path)
-pages = []
-for page in doc:
-    pages.append(page.get_text())
-text = "\\n\\f\\n".join(pages)
-with open(os.path.join(out_dir, "text.txt"), "w", encoding="utf-8") as f:
-    f.write(text)
-print(str(len(text)))
-`;
-
-  await execFileAsync("python3", ["-c", py, pdfPath, outDir], { maxBuffer: 20 * 1024 * 1024 });
+  const text = await extractPdfTextRobust(pdfBytes);
+  if (!text.trim()) throw new Error(`PDF text extraction failed for ${arxivUrl}`);
+  await writeFile(textPath, text, "utf8");
   return readFile(textPath, "utf8");
 }
 
