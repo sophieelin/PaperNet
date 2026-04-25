@@ -8,13 +8,31 @@ type StoredGraph = {
   nodes: Array<Node<GraphNodeData>>;
 };
 
+function hasPaperId(
+  paper: unknown,
+): paper is GraphNodeData["paper"] & { id: string } {
+  return (
+    typeof paper === "object" &&
+    paper !== null &&
+    "id" in paper &&
+    typeof (paper as { id?: unknown }).id === "string" &&
+    (paper as { id: string }).id.trim().length > 0
+  );
+}
+
 export async function POST(request: Request) {
   try {
     const { runId, query } = (await request.json()) as { runId?: string; query?: string };
     if (!runId) return NextResponse.json({ error: "runId is required" }, { status: 400 });
 
     const graph = await readRunData<StoredGraph>(runId, "graph.json");
-    const papers = [...new Map(graph.nodes.map((node) => [node.data.paper.id, node.data.paper])).values()];
+    const byId = new Map<string, GraphNodeData["paper"]>();
+    for (const node of graph.nodes) {
+      const paper = node?.data?.paper;
+      if (!hasPaperId(paper)) continue;
+      byId.set(paper.id, paper);
+    }
+    const papers = [...byId.values()];
 
     const cards = await Promise.all(
       papers.map(async (paper) => ({

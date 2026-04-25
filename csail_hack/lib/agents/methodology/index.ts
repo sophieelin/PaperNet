@@ -88,9 +88,9 @@ export async function runMethodologyAgent(
   if (!paperText.trim()) return fallbackResult();
 
   const prompt = buildMethodologyExtractionPrompt(paperText);
-  const apiKey = process.env.CHATGPT_API_KEY ?? process.env.OPENAI_API_KEY;
+  const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
-    throw new Error("Missing CHATGPT_API_KEY (or OPENAI_API_KEY) in environment.");
+    throw new Error("Missing OPENAI_API_KEY  in environment.");
   }
 
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
