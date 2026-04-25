@@ -1,6 +1,14 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import {
+  CSSProperties,
+  FormEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   Background,
   BackgroundVariant,
@@ -15,12 +23,23 @@ import type {
   NodeProps,
   ReactFlowInstance,
 } from "@xyflow/react";
-import type { GraphNodeData, ResearchPaper } from "@/lib/papers";
+import type {
+  AnyNodeData,
+  GraphNodeData,
+  HaloNodeData,
+  ResearchPaper,
+  Subtopic,
+} from "@/lib/papers";
 import "@xyflow/react/dist/style.css";
 
-type GraphPayload = { nodes: Node<GraphNodeData>[]; edges: Edge[] };
+type GraphPayload = {
+  nodes: Node<AnyNodeData>[];
+  edges: Edge[];
+  subtopics?: Subtopic[];
+};
 type Phase = "idle" | "seeds" | "citations";
 type PaperNodeType = Node<GraphNodeData, "paper">;
+type HaloNodeType = Node<HaloNodeData, "halo">;
 
 const EXAMPLES = [
   "diffusion models for video",
@@ -29,48 +48,160 @@ const EXAMPLES = [
   "mechanistic interpretability",
 ];
 
+// These must match SEED_NODE_SIZE / CITATION_NODE_SIZE in lib/graph.ts so
+// dagre reserves the right amount of layout space for them.
+const SEED_DIAMETER = 132;
+const CITATION_DIAMETER = 96;
+
+const hexToRgba = (hex: string, alpha: number) => {
+  const cleaned = hex.replace("#", "");
+  if (cleaned.length !== 6) return hex;
+  const r = parseInt(cleaned.slice(0, 2), 16);
+  const g = parseInt(cleaned.slice(2, 4), 16);
+  const b = parseInt(cleaned.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
+
+// Single circular hit-area whose own contents are non-interactive — that
+// way React Flow's onNodeMouseEnter / onNodeMouseLeave fire exactly once
+// per hover and don't re-trigger as the cursor crosses inner text spans.
+//
+// Visual hierarchy:
+//   - Seed: vibrant cluster-coloured radial fill, white bold title,
+//     thin inner highlight ring for "lit" depth, year chip pinned to
+//     the bottom of the disc.
+//   - Citation: same radial fill but heavily damped (alpha ~0.22) so
+//     it reads as a quieter member of the same cluster instead of a
+//     hollow dark circle. Slate-200 medium title, no year.
+//   - Hover: small scale-up + brighter glow.
+//   - Selected: cluster-coloured outline glow (no more amber ring).
 function PaperNode({ data, selected }: NodeProps<PaperNodeType>) {
   const isSeed = data.kind === "seed";
+  const accent = data.color ?? (isSeed ? "#94a3b8" : "#475569");
+  const size = isSeed ? SEED_DIAMETER : CITATION_DIAMETER;
+
+  const background = isSeed
+    ? `radial-gradient(circle at 30% 22%, ${hexToRgba(accent, 0.62)} 0%, ${hexToRgba(accent, 0.28)} 55%, ${hexToRgba(accent, 0.1)} 100%)`
+    : `radial-gradient(circle at 30% 22%, ${hexToRgba(accent, 0.28)} 0%, ${hexToRgba(accent, 0.1)} 55%, rgba(13,18,32,0.92) 100%)`;
+
+  const borderWidth = isSeed ? 2 : 1.4;
+  const borderColor = hexToRgba(accent, isSeed ? 0.95 : 0.75);
+
+  const baseShadow = isSeed
+    ? `0 0 0 1px ${hexToRgba(accent, 0.3)}, 0 12px 28px -12px ${hexToRgba(accent, 0.65)}`
+    : `0 0 0 1px ${hexToRgba(accent, 0.32)}, 0 6px 16px -10px rgba(0,0,0,0.7)`;
+  const selectedShadow = `0 0 0 2px ${hexToRgba(accent, 1)}, 0 0 28px -2px ${hexToRgba(accent, 0.85)}`;
+
+  const titleClass = isSeed
+    ? "text-[11px] font-semibold leading-[1.15] line-clamp-3"
+    : "text-[10px] font-medium leading-[1.12] line-clamp-3";
+
   return (
     <div
-      className={[
-        "group relative w-[220px] cursor-pointer rounded-xl border px-3 py-2 text-left shadow-sm transition-all",
-        isSeed
-          ? "border-slate-900 bg-white text-slate-900 shadow-slate-900/10"
-          : "border-slate-300 bg-white/95 text-slate-700",
-        selected
-          ? "ring-2 ring-amber-500 ring-offset-2 ring-offset-slate-50"
-          : "hover:border-slate-500 hover:shadow-md",
-      ].join(" ")}
+      role="button"
+      aria-label={`${isSeed ? "Seed" : "Citation"}: ${data.label}`}
+      className="group relative flex cursor-pointer items-center justify-center rounded-full text-center transition-[transform,box-shadow] duration-200 ease-out hover:z-10 hover:scale-[1.06]"
+      style={{
+        width: size,
+        height: size,
+        background,
+        border: `${borderWidth}px solid ${borderColor}`,
+        boxShadow: selected ? selectedShadow : baseShadow,
+      }}
     >
       <Handle
         type="target"
         position={Position.Top}
-        className="!h-1.5 !w-1.5 !border-0 !bg-slate-300"
+        isConnectable={false}
+        className="!pointer-events-none !h-1.5 !w-1.5 !border-0 !bg-slate-500/60"
       />
-      <div className="flex items-center justify-between gap-2 text-[9px] font-semibold uppercase tracking-[0.12em]">
-        <span className={isSeed ? "text-slate-900" : "text-slate-400"}>
-          {isSeed ? "Seed" : "Citation"}
-        </span>
-        {data.subtitle && <span className="text-slate-400">{data.subtitle}</span>}
-      </div>
+
+      {/* Inner highlight ring — only on seeds, gives the disc a "lit"
+          look that helps it pop against the cluster halo. */}
+      {isSeed && (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-[5px] rounded-full"
+          style={{
+            border: `1px solid ${hexToRgba("#ffffff", 0.1)}`,
+            background: `radial-gradient(circle at 30% 18%, ${hexToRgba("#ffffff", 0.12)}, ${hexToRgba("#ffffff", 0)} 55%)`,
+          }}
+        />
+      )}
+
       <div
-        className={`mt-1.5 line-clamp-3 text-[11px] leading-snug ${
-          isSeed ? "font-semibold" : "font-medium"
-        }`}
+        className="pointer-events-none relative z-[1] flex h-full w-full flex-col items-center justify-center gap-1.5 px-2.5"
+        style={{ color: isSeed ? "#f8fafc" : "#e2e8f0" }}
       >
-        {data.label}
+        <div
+          className={`${titleClass} break-words tracking-tight`}
+          style={{
+            textShadow: isSeed
+              ? "0 1px 3px rgba(0,0,0,0.55)"
+              : "0 1px 2px rgba(0,0,0,0.5)",
+          }}
+        >
+          {data.label}
+        </div>
+
+        {/* Year pill on seeds only — citations don't have it because their
+            disc is too small for a legible second row of text. */}
+        {isSeed && data.subtitle && (
+          <div
+            className="rounded-full px-2 py-[1px] text-[9px] font-bold tracking-[0.12em]"
+            style={{
+              background: hexToRgba("#0f172a", 0.55),
+              color: hexToRgba(accent, 0.95),
+              border: `1px solid ${hexToRgba(accent, 0.4)}`,
+            }}
+          >
+            {data.subtitle}
+          </div>
+        )}
       </div>
+
       <Handle
         type="source"
         position={Position.Bottom}
-        className="!h-1.5 !w-1.5 !border-0 !bg-slate-300"
+        isConnectable={false}
+        className="!pointer-events-none !h-1.5 !w-1.5 !border-0 !bg-slate-500/60"
       />
     </div>
   );
 }
 
-const nodeTypes = { paper: PaperNode };
+// Translucent disc rendered behind each cluster so the topic boundary
+// is visible at a glance. Non-interactive — pointer events pass through
+// to the paper nodes inside.
+function HaloNode({ data }: NodeProps<HaloNodeType>) {
+  const { color, label, diameter } = data;
+  return (
+    <div
+      aria-hidden="true"
+      className="pointer-events-none relative"
+      style={{ width: diameter, height: diameter }}
+    >
+      <div
+        className="absolute inset-0 rounded-full"
+        style={{
+          background: `radial-gradient(circle at 50% 45%, ${hexToRgba(color, 0.16)}, ${hexToRgba(color, 0.06)} 70%, ${hexToRgba(color, 0)} 100%)`,
+          border: `1px dashed ${hexToRgba(color, 0.35)}`,
+          boxShadow: `inset 0 0 60px -10px ${hexToRgba(color, 0.18)}`,
+        }}
+      />
+      <div
+        className="absolute left-1/2 top-3 -translate-x-1/2 whitespace-nowrap rounded-full px-3 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em]"
+        style={{
+          background: hexToRgba(color, 0.22),
+          color: hexToRgba(color, 0.95),
+          border: `1px solid ${hexToRgba(color, 0.35)}`,
+        }}
+      >
+        {label}
+      </div>
+    </div>
+  );
+}
 
 function DetailPanel({
   paper,
@@ -81,14 +212,14 @@ function DetailPanel({
 }) {
   if (!paper) return null;
   return (
-    <aside className="pointer-events-auto absolute right-4 top-4 z-20 flex max-h-[calc(100vh-2rem)] w-[360px] max-w-[90vw] flex-col gap-3 overflow-hidden rounded-2xl border border-slate-200 bg-white/95 p-5 shadow-2xl backdrop-blur">
+    <aside className="pointer-events-auto absolute right-4 top-4 z-20 flex max-h-[calc(100vh-2rem)] w-[360px] max-w-[90vw] flex-col gap-3 overflow-hidden rounded-2xl border border-slate-700/80 bg-slate-900/95 p-5 text-slate-100 shadow-2xl backdrop-blur">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
             {paper.source === "arxiv" ? "arXiv paper" : "Cited paper"}
             {paper.year ? ` · ${paper.year}` : ""}
           </div>
-          <h2 className="mt-1 text-base font-semibold leading-snug text-slate-900">
+          <h2 className="mt-1 text-base font-semibold leading-snug text-slate-50">
             {paper.title}
           </h2>
         </div>
@@ -96,7 +227,7 @@ function DetailPanel({
           type="button"
           onClick={onClose}
           aria-label="Close detail panel"
-          className="-mr-1 -mt-1 shrink-0 rounded-full p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+          className="-mr-1 -mt-1 shrink-0 rounded-full p-1 text-slate-500 transition hover:bg-slate-800 hover:text-slate-200"
         >
           <svg
             width="18"
@@ -113,7 +244,7 @@ function DetailPanel({
       </div>
 
       {paper.authors.length > 0 && (
-        <p className="text-xs text-slate-600">
+        <p className="text-xs text-slate-400">
           {paper.authors.slice(0, 6).join(", ")}
           {paper.authors.length > 6
             ? ` and ${paper.authors.length - 6} more`
@@ -126,13 +257,13 @@ function DetailPanel({
           paper.influentialCitationCount > 0)) && (
         <div className="flex flex-wrap gap-1.5 text-[11px]">
           {paper.citationCount != null && (
-            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-700">
+            <span className="rounded-full bg-slate-800 px-2 py-0.5 text-slate-300">
               {paper.citationCount.toLocaleString()} citations
             </span>
           )}
           {paper.influentialCitationCount != null &&
             paper.influentialCitationCount > 0 && (
-              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-amber-800">
+              <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-amber-300">
                 {paper.influentialCitationCount} influential
               </span>
             )}
@@ -140,7 +271,7 @@ function DetailPanel({
       )}
 
       {paper.summary && (
-        <p className="overflow-y-auto pr-1 text-xs leading-relaxed text-slate-700">
+        <p className="overflow-y-auto pr-1 text-xs leading-relaxed text-slate-300">
           {paper.summary}
         </p>
       )}
@@ -150,7 +281,7 @@ function DetailPanel({
           href={paper.url}
           target="_blank"
           rel="noreferrer"
-          className="mt-auto inline-flex items-center justify-center gap-1.5 rounded-lg bg-slate-900 px-3 py-2 text-xs font-medium text-white transition hover:bg-slate-800"
+          className="mt-auto inline-flex items-center justify-center gap-1.5 rounded-lg bg-slate-100 px-3 py-2 text-xs font-medium text-slate-900 transition hover:bg-white"
         >
           Open paper
           <svg
@@ -176,33 +307,80 @@ function StatusPill({
   loading,
   nodeCount,
   edgeCount,
+  subtopicCount,
 }: {
   phase: Phase;
   loading: boolean;
   nodeCount: number;
   edgeCount: number;
+  subtopicCount: number;
 }) {
-  let dot = "bg-slate-300";
+  let dot = "bg-slate-600";
   let label = "Idle";
   if (loading && phase === "idle") {
-    dot = "bg-amber-500 animate-pulse";
+    dot = "bg-amber-400 animate-pulse";
     label = "Searching arXiv...";
   } else if (loading && phase === "seeds") {
-    dot = "bg-amber-500 animate-pulse";
+    dot = "bg-amber-400 animate-pulse";
     label = `Fetching citations for ${nodeCount} seeds...`;
   } else if (phase === "seeds") {
-    dot = "bg-sky-500";
+    dot = "bg-sky-400";
     label = `Seeds ready · ${nodeCount} nodes`;
   } else if (phase === "citations") {
-    dot = "bg-emerald-500";
-    label = `Graph ready · ${nodeCount} nodes · ${edgeCount} edges`;
+    dot = "bg-emerald-400";
+    label =
+      subtopicCount > 0
+        ? `${subtopicCount} subtopics · ${nodeCount} nodes · ${edgeCount} edges`
+        : `Graph ready · ${nodeCount} nodes · ${edgeCount} edges`;
   }
   return (
-    <div className="pointer-events-auto absolute left-4 top-4 z-20 flex items-center gap-2 rounded-full border border-slate-200 bg-white/90 px-3 py-1.5 text-xs shadow-sm backdrop-blur">
-      <span className="font-semibold text-slate-900">Citation Mapper</span>
-      <span className="text-slate-300">·</span>
+    <div className="pointer-events-auto absolute left-4 top-4 z-20 flex items-center gap-2 rounded-full border border-slate-700/80 bg-slate-900/85 px-3 py-1.5 text-xs text-slate-300 shadow-lg backdrop-blur">
+      <span className="font-semibold text-slate-100">Citation Mapper</span>
+      <span className="text-slate-600">·</span>
       <span className={`inline-block h-1.5 w-1.5 rounded-full ${dot}`} />
-      <span className="text-slate-600">{label}</span>
+      <span>{label}</span>
+    </div>
+  );
+}
+
+function SubtopicLegend({
+  subtopics,
+  hoveredColor,
+  onHover,
+}: {
+  subtopics: Subtopic[];
+  hoveredColor: string | null;
+  onHover: (color: string | null) => void;
+}) {
+  if (subtopics.length === 0) return null;
+  return (
+    <div className="pointer-events-auto absolute left-4 top-14 z-20 flex max-w-[260px] flex-col gap-1 rounded-2xl border border-slate-700/80 bg-slate-900/85 p-2.5 text-xs text-slate-200 shadow-lg backdrop-blur">
+      <div className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+        Subtopics
+      </div>
+      {subtopics.map((topic) => {
+        const isActive = hoveredColor === null || hoveredColor === topic.color;
+        return (
+          <button
+            key={topic.color + topic.label}
+            type="button"
+            onMouseEnter={() => onHover(topic.color)}
+            onMouseLeave={() => onHover(null)}
+            className="flex items-center gap-2 rounded-lg px-2 py-1 text-left transition hover:bg-slate-800"
+            style={{ opacity: isActive ? 1 : 0.35 }}
+          >
+            <span
+              className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
+              style={{ background: topic.color, boxShadow: `0 0 8px ${topic.color}80` }}
+              aria-hidden
+            />
+            <span className="truncate text-slate-100">{topic.label}</span>
+            <span className="ml-auto pl-1 text-[10px] text-slate-500">
+              {topic.seedIds.length}
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -220,11 +398,145 @@ export default function Home() {
   const [flowInstance, setFlowInstance] =
     useState<ReactFlowInstance | null>(null);
   const [selected, setSelected] = useState<ResearchPaper | null>(null);
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [hoveredCluster, setHoveredCluster] = useState<string | null>(null);
+
+  // Debounce hover state changes so the cursor briefly crossing dead space
+  // between nodes / edges / handles doesn't make the BFS dim flicker. Mouse-
+  // enter clears any pending leave; mouse-leave only commits after a short
+  // grace period.
+  const hoverLeaveTimer = useRef<number | null>(null);
+  const setHoverNode = useCallback((id: string | null) => {
+    if (id !== null) {
+      if (hoverLeaveTimer.current !== null) {
+        window.clearTimeout(hoverLeaveTimer.current);
+        hoverLeaveTimer.current = null;
+      }
+      setHoveredId(id);
+      return;
+    }
+    if (hoverLeaveTimer.current !== null) {
+      window.clearTimeout(hoverLeaveTimer.current);
+    }
+    hoverLeaveTimer.current = window.setTimeout(() => {
+      setHoveredId(null);
+      hoverLeaveTimer.current = null;
+    }, 140);
+  }, []);
+  useEffect(() => {
+    return () => {
+      if (hoverLeaveTimer.current !== null) {
+        window.clearTimeout(hoverLeaveTimer.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!flowInstance || graph.nodes.length === 0) return;
     flowInstance.fitView({ padding: 0.2, duration: 450 });
   }, [flowInstance, graph.edges.length, graph.nodes.length]);
+
+  // Memoizing inside the component keeps the reference stable across Fast
+  // Refresh reloads, which silences React Flow's "new nodeTypes object"
+  // warning and prevents subtle node re-mounts on each render.
+  const nodeTypes = useMemo(() => ({ paper: PaperNode, halo: HaloNode }), []);
+
+  const subtopics = graph.subtopics ?? [];
+  // Halos are decoration, not real graph members — exclude them from
+  // status counts and "empty graph" detection.
+  const paperNodeCount = useMemo(
+    () => graph.nodes.filter((n) => n.type !== "halo").length,
+    [graph.nodes],
+  );
+
+  const adjacency = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    // Halos aren't real graph members — skip them so they never appear
+    // in the BFS frontier and never get dimmed when a paper is hovered.
+    for (const node of graph.nodes) {
+      if (node.type === "halo") continue;
+      map.set(node.id, new Set());
+    }
+    for (const edge of graph.edges) {
+      map.get(edge.source)?.add(edge.target);
+      map.get(edge.target)?.add(edge.source);
+    }
+    return map;
+  }, [graph.edges, graph.nodes]);
+
+  // BFS to depth 2 so hovering a seed reveals its citations *and* the
+  // other seeds that share those citations, and hovering a citation
+  // reveals its parent seeds *and* their other citations.
+  const connectedIds = useMemo(() => {
+    if (hoveredCluster) {
+      const clusterSeeds = new Set(
+        subtopics.find((s) => s.color === hoveredCluster)?.seedIds ?? [],
+      );
+      if (clusterSeeds.size === 0) return null;
+      const visited = new Set<string>(clusterSeeds);
+      for (const id of clusterSeeds) {
+        for (const neighbor of adjacency.get(id) ?? []) visited.add(neighbor);
+      }
+      return visited;
+    }
+    if (!hoveredId) return null;
+    const visited = new Set<string>([hoveredId]);
+    let frontier: string[] = [hoveredId];
+    for (let depth = 0; depth < 2 && frontier.length > 0; depth += 1) {
+      const next: string[] = [];
+      for (const id of frontier) {
+        for (const neighbor of adjacency.get(id) ?? []) {
+          if (!visited.has(neighbor)) {
+            visited.add(neighbor);
+            next.push(neighbor);
+          }
+        }
+      }
+      frontier = next;
+    }
+    return visited;
+  }, [adjacency, hoveredId, hoveredCluster, subtopics]);
+
+  const displayNodes = useMemo(() => {
+    if (!connectedIds) return graph.nodes;
+    return graph.nodes.map((node) => {
+      // Halos are decoration — keep them at full opacity always so the
+      // topic regions stay visible even while a single subgraph is
+      // isolated by hover.
+      if (node.type === "halo") return node;
+      const active = connectedIds.has(node.id);
+      const pe: CSSProperties["pointerEvents"] = active ? "auto" : "none";
+      return {
+        ...node,
+        // Dimmed nodes go pointer-events:none so the cursor can't accidentally
+        // re-trigger onNodeMouseEnter on a faded neighbour while the user is
+        // sweeping across the active subgraph. This is the main fix for the
+        // "hover keeps jumping to other nodes" glitch.
+        style: {
+          ...node.style,
+          opacity: active ? 1 : 0.18,
+          pointerEvents: pe,
+        },
+      };
+    });
+  }, [connectedIds, graph.nodes]);
+
+  const displayEdges = useMemo(() => {
+    if (!connectedIds) return graph.edges;
+    return graph.edges.map((edge) => {
+      const active =
+        connectedIds.has(edge.source) && connectedIds.has(edge.target);
+      const pe: CSSProperties["pointerEvents"] = active ? "auto" : "none";
+      return {
+        ...edge,
+        style: {
+          ...edge.style,
+          opacity: active ? 0.95 : 0.05,
+          pointerEvents: pe,
+        },
+      };
+    });
+  }, [connectedIds, graph.edges]);
 
   const runQuery = useCallback(
     async (raw: string) => {
@@ -308,42 +620,59 @@ export default function Home() {
     }
   };
 
-  const showEmptyState = !loading && graph.nodes.length === 0;
+  const showEmptyState = !loading && paperNodeCount === 0;
 
   return (
-    <main className="relative h-screen w-screen overflow-hidden bg-slate-50">
+    <main className="relative h-screen w-screen overflow-hidden bg-slate-950 text-slate-100">
       <ReactFlow
-        nodes={graph.nodes}
-        edges={graph.edges}
+        nodes={displayNodes}
+        edges={displayEdges}
         nodeTypes={nodeTypes}
         fitView
         onInit={setFlowInstance}
         onNodeClick={(_, node) => {
+          if (node.type === "halo") return;
           const data = node.data as GraphNodeData;
           setSelected(data.paper ?? null);
         }}
+        onNodeMouseEnter={(_, node) => {
+          if (node.type === "halo") return;
+          setHoverNode(node.id);
+        }}
+        onNodeMouseLeave={() => setHoverNode(null)}
+        onPaneMouseLeave={() => setHoverNode(null)}
         onPaneClick={() => setSelected(null)}
         nodesDraggable={false}
         nodesConnectable={false}
         elementsSelectable
-        minZoom={0.25}
+        minZoom={0.05}
         maxZoom={1.6}
         proOptions={{ hideAttribution: true }}
       >
         <Background
           variant={BackgroundVariant.Dots}
-          gap={24}
+          gap={28}
           size={1}
-          color="#cbd5e1"
+          color="#1e293b"
         />
-        <Controls showInteractive={false} className="!shadow-md" />
+        <Controls
+          showInteractive={false}
+          className="!shadow-lg [&>button]:!border-slate-700 [&>button]:!bg-slate-900 [&>button]:!text-slate-200 [&>button:hover]:!bg-slate-800"
+        />
       </ReactFlow>
 
       <StatusPill
         phase={phase}
         loading={loading}
-        nodeCount={graph.nodes.length}
+        nodeCount={paperNodeCount}
         edgeCount={graph.edges.length}
+        subtopicCount={subtopics.length}
+      />
+
+      <SubtopicLegend
+        subtopics={subtopics}
+        hoveredColor={hoveredCluster}
+        onHover={setHoveredCluster}
       />
 
       <DetailPanel paper={selected} onClose={() => setSelected(null)} />
@@ -351,10 +680,10 @@ export default function Home() {
       {showEmptyState && (
         <div className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center px-6">
           <div className="text-center">
-            <div className="text-3xl font-semibold tracking-tight text-slate-400">
+            <div className="text-3xl font-semibold tracking-tight text-slate-300">
               Map a research topic
             </div>
-            <div className="mt-2 text-sm text-slate-400">
+            <div className="mt-2 text-sm text-slate-500">
               Recent arXiv papers + their most-cited references, in one graph.
             </div>
             <div className="pointer-events-auto mt-6 flex flex-wrap justify-center gap-2">
@@ -363,7 +692,7 @@ export default function Home() {
                   key={example}
                   type="button"
                   onClick={() => onExample(example)}
-                  className="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-700 shadow-sm transition hover:border-slate-500 hover:text-slate-900"
+                  className="rounded-full border border-slate-700 bg-slate-900/70 px-3 py-1.5 text-xs text-slate-300 shadow-sm backdrop-blur transition hover:border-slate-500 hover:bg-slate-800 hover:text-slate-100"
                 >
                   {example}
                 </button>
@@ -376,9 +705,9 @@ export default function Home() {
       <section className="pointer-events-none absolute inset-x-0 bottom-0 z-10 p-6">
         <form
           onSubmit={onSubmit}
-          className="pointer-events-auto mx-auto flex w-full max-w-3xl items-center gap-2 rounded-2xl border border-slate-200 bg-white/95 p-2.5 shadow-xl backdrop-blur"
+          className="pointer-events-auto mx-auto flex w-full max-w-3xl items-center gap-2 rounded-2xl border border-slate-700/80 bg-slate-900/95 p-2.5 shadow-2xl backdrop-blur"
         >
-          <span className="ml-2 text-slate-400">
+          <span className="ml-2 text-slate-500">
             <svg
               width="18"
               height="18"
@@ -398,14 +727,14 @@ export default function Home() {
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Describe a research topic..."
             disabled={loading}
-            className="h-11 flex-1 bg-transparent px-1 text-sm text-slate-900 outline-none placeholder:text-slate-400 disabled:opacity-60"
+            className="h-11 flex-1 bg-transparent px-1 text-sm text-slate-100 outline-none placeholder:text-slate-500 disabled:opacity-60"
           />
           {query && !loading && (
             <button
               type="button"
               onClick={() => setQuery("")}
               aria-label="Clear query"
-              className="rounded-md p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+              className="rounded-md p-1 text-slate-500 transition hover:bg-slate-800 hover:text-slate-200"
             >
               <svg
                 width="16"
@@ -423,11 +752,11 @@ export default function Home() {
           <button
             type="submit"
             disabled={loading || !query.trim()}
-            className="inline-flex h-11 items-center gap-2 rounded-xl bg-slate-900 px-4 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex h-11 items-center gap-2 rounded-xl bg-slate-100 px-4 text-sm font-medium text-slate-900 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
           >
             {loading ? (
               <>
-                <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-slate-400 border-t-slate-900" />
                 Mapping
               </>
             ) : (
@@ -447,9 +776,9 @@ export default function Home() {
         <div className="pointer-events-none mx-auto mt-2 flex max-w-3xl items-center justify-between gap-3 px-2 text-[11px] text-slate-500">
           <span className="truncate">
             {error ? (
-              <span className="text-red-600">{error}</span>
+              <span className="text-rose-400">{error}</span>
             ) : runId ? (
-              <span className="font-mono text-slate-400">{runId}</span>
+              <span className="font-mono text-slate-600">{runId}</span>
             ) : (
               <span>Press Enter or hit Map to build the graph.</span>
             )}

@@ -1,8 +1,8 @@
 @import "../node_modules/tailwindcss/index.css";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #0a0a0a;
+  --foreground: #ededed;
 }
 
 @theme inline {
@@ -12,15 +12,43 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+/* React Flow nodes share a single round hit area; give the opacity
+   transitions enough time to feel smooth without lingering. */
+.react-flow__node,
+.react-flow__edge {
+  transition: opacity 160ms ease-out;
+}
+
+/* Dim arrow markers along with the edges they belong to (React Flow
+   renders markers in <defs> and they don't inherit the edge's opacity by
+   default). */
+.react-flow__edge.rf-dim,
+.react-flow__edge[style*="opacity: 0"] .react-flow__arrowhead {
+  opacity: inherit;
+}
+
+/* Dark variant for React Flow's built-in zoom/fit controls. */
+.react-flow__controls {
+  border: 1px solid rgb(51 65 85 / 0.8);
+  background: rgb(15 23 42 / 0.85);
+  backdrop-filter: blur(8px);
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+.react-flow__controls-button {
+  background: transparent !important;
+  color: #cbd5e1 !important;
+  border-bottom: 1px solid rgb(51 65 85 / 0.6) !important;
+}
+.react-flow__controls-button:hover {
+  background: rgb(30 41 59 / 0.7) !important;
+}
+.react-flow__controls-button svg {
+  fill: currentColor !important;
 }

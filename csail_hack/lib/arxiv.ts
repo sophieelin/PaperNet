@@ -45,18 +45,36 @@ const toResearchPaper = (entry: ArxivEntry): ResearchPaper | null => {
   };
 };
 
-export async function searchRecentArxivPapers(
-  query: string,
-  maxResults = 20,
-  daysBack = 365,
-): Promise<ResearchPaper[]> {
-  const normalizedQuery = query
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((term) => `all:${term}`)
-    .join(" AND ");
-  const searchQuery = `(${normalizedQuery || `all:${query.trim()}`}) AND submittedDate:${dateRange(daysBack)}`;
+// arXiv silently returns 0 results when an `all:` clause hits a stop word
+// like "the" or "for", so we filter those before building the AND query.
+// Anything ≤2 chars is also dropped (numeric versions, single letters).
+const QUERY_STOPWORDS = new Set([
+  "a", "an", "the", "and", "or", "of", "for", "with", "in", "on", "to",
+  "via", "by", "from", "as", "at", "is", "are", "be", "this", "that",
+  "into", "between", "across", "over", "under", "vs", "versus",
+]);
+
+const buildSearchClauses = (query: string): { strict: string; relaxed: string } => {
+  const tokens = query.trim().split(/\s+/).filter(Boolean);
+  const meaningful = tokens.filter(
+    (t) => t.length > 2 && !QUERY_STOPWORDS.has(t.toLowerCase()),
+  );
+  // Strict: every meaningful token must appear (good precision when the user
+  // gives 2+ specific words).
+  const strict =
+    meaningful.length > 0
+      ? meaningful.map((t) => `all:${t}`).join(" AND ")
+      : `all:${query.trim()}`;
+  // Relaxed: any meaningful token may appear (fallback when the strict query
+  // is too narrow and arXiv returns nothing).
+  const relaxed =
+    meaningful.length > 1
+      ? `(${meaningful.map((t) => `all:${t}`).join(" OR ")})`
+      : strict;
+  return { strict, relaxed };
+};
+
+const fetchArxiv = async (searchQuery: string, maxResults: number): Promise<ResearchPaper[]> => {
   const params = new URLSearchParams({
     search_query: searchQuery,
     start: "0",
@@ -64,11 +82,19 @@ export async function searchRecentArxivPapers(
     sortBy: "submittedDate",
     sortOrder: "descending",
   });
-
-  const response = await fetch(`${ARXIV_ENDPOINT}?${params.toString()}`, {
-    headers: { "User-Agent": "csail-hack-research-graph/1.0" },
-    cache: "no-store",
-  });
+  const url = `${ARXIV_ENDPOINT}?${params.toString()}`;
+  // arXiv occasionally returns 5xx or empty bodies under load. One short retry
+  // keeps the dev experience smooth without masking real failures.
+  const fetchOnce = () =>
+    fetch(url, {
+      headers: { "User-Agent": "csail-hack-research-graph/1.0" },
+      cache: "no-store",
+    });
+  let response = await fetchOnce();
+  if (!response.ok && response.status >= 500) {
+    await new Promise((r) => setTimeout(r, 500));
+    response = await fetchOnce();
+  }
   if (!response.ok) throw new Error(`arXiv request failed: ${response.status}`);
 
   const xml = await response.text();
@@ -78,6 +104,29 @@ export async function searchRecentArxivPapers(
     if (paper) papers.push(paper);
     return papers;
   }, []);
+};
+
+export async function searchRecentArxivPapers(
+  query: string,
+  maxResults = 20,
+  daysBack = 365,
+): Promise<ResearchPaper[]> {
+  const { strict, relaxed } = buildSearchClauses(query);
+  const dateClause = `AND submittedDate:${dateRange(daysBack)}`;
+
+  // Try strict first (high precision). If no recent matches, relax to OR.
+  // If still empty, drop the date window so the user always gets *something*
+  // back to render rather than a silent empty graph.
+  const attempts = [
+    `(${strict}) ${dateClause}`,
+    `(${relaxed}) ${dateClause}`,
+    `(${relaxed})`,
+  ];
+  for (const searchQuery of attempts) {
+    const papers = await fetchArxiv(searchQuery, maxResults);
+    if (papers.length > 0) return papers;
+  }
+  return [];
 }
 
 export async function fetchArxivPapersByIds(ids: string[]): Promise<ResearchPaper[]> {

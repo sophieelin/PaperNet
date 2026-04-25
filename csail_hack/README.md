@@ -23,7 +23,20 @@ npm run start   # run the production build
 npm run lint    # eslint
 ```
 
-No API keys are required — the app calls public arXiv and Semantic Scholar endpoints anonymously.
+No API keys are required to start — the app calls public arXiv and Semantic Scholar endpoints anonymously.
+
+### Optional: OpenAI-powered topic clustering
+
+If you set `OPENAI_API_KEY`, the citations route asks OpenAI (default `gpt-4o-mini`, in JSON mode) to cluster every seed and citation into 3–7 named subtopics. Each paper is then guaranteed to live under exactly one topic — both in colour and in spatial layout. Without the key, the app falls back to the built-in heuristic clusterer (bibliographic coupling + shared title phrases). Add it to a local `.env.local` like so:
+
+```bash
+# csail_hack/.env.local
+OPENAI_API_KEY=sk-...
+# Optional: pick a different model
+# OPENAI_CLUSTER_MODEL=gpt-4o
+```
+
+Restart `npm run dev` after editing `.env.local`. You'll see `[citations] using OpenAI clustering: N topics` in the dev server log when it kicks in.
 
 ## How It Works
 
@@ -58,7 +71,8 @@ csail_hack/
 │   ├── papers.ts                      # shared types
 │   ├── arxiv.ts                       # arXiv API client (XML search + id lookup)
 │   ├── semanticScholar.ts             # S2 reference discovery + arXiv hydration
-│   ├── graph.ts                       # node/edge layout
+│   ├── graph.ts                       # node/edge layout + heuristic clustering
+│   ├── openaiClustering.ts            # optional LLM-driven topic assignment
 │   └── storage.ts                     # filesystem persistence
 ├── public/                            # static assets
 └── data/                              # per-run JSON output (gitignored)

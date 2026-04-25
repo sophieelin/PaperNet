@@ -24,5 +24,25 @@ export type GraphNodeData = {
   subtitle?: string;
   kind: "seed" | "citation";
   paper: ResearchPaper;
+  color?: string;
+};
+
+// Halo nodes are non-interactive translucent discs rendered behind each
+// cluster so the topic boundary is visible at a glance. They share the
+// React Flow nodes array with paper nodes but use their own React
+// component, keyed off `data.kind === "halo"`.
+export type HaloNodeData = {
+  kind: "halo";
+  color: string;
+  label: string;
+  diameter: number;
+};
+
+export type AnyNodeData = GraphNodeData | HaloNodeData;
+
+export type Subtopic = {
+  color: string;
+  label: string;
+  seedIds: string[];
 };
 

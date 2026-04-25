@@ -19,6 +19,9 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ runId, query: normalized, seeds, graph });
   } catch (error) {
+    // Surface the full error in the dev terminal — without this the route
+    // returns a 500 with no clue what actually broke.
+    console.error("[seeds] failed:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "seed generation failed" },
       { status: 500 },
