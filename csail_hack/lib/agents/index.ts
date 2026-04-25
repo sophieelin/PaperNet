@@ -1,5 +1,7 @@
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
 import path from "node:path";
+import { promisify } from "node:util";
 import { runFiguresAgent } from "./figures";
 import { runMethodologyAgent } from "./methodology";
 import { runSummaryAgent } from "./summary";
@@ -35,40 +37,51 @@ const dataRoot = () =>
     process.cwd(),
     path.basename(process.cwd()) === "csail_hack" ? "data" : path.join("csail_hack", "data"),
   );
+const execFileAsync = promisify(execFile);
 
-const ensurePromiseWithResolvers = () => {
-  const promiseCtor = Promise as typeof Promise & {
-    withResolvers?: <T>() => {
-      promise: Promise<T>;
-      resolve: (value: T | PromiseLike<T>) => void;
-      reject: (reason?: unknown) => void;
-    };
-  };
-  if (typeof promiseCtor.withResolvers === "function") return;
-  promiseCtor.withResolvers = <T>() => {
-    let resolve!: (value: T | PromiseLike<T>) => void;
-    let reject!: (reason?: unknown) => void;
-    const promise = new Promise<T>((res, rej) => {
-      resolve = res;
-      reject = rej;
-    });
-    return { promise, resolve, reject };
-  };
+const safeDecodePdfTextToken = (value = "") => {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 };
 
-async function extractPdfTextRobust(pdfBytes: Buffer): Promise<string> {
+async function extractPdfTextViaOcr(pdfPath: string, outDir: string): Promise<string> {
+  const ocrTextPath = path.join(outDir, "ocr-text.txt");
+  const py = `
+import os, sys, tempfile, subprocess
+import fitz
+
+pdf_path, out_txt = sys.argv[1], sys.argv[2]
+doc = fitz.open(pdf_path)
+chunks = []
+for i, page in enumerate(doc):
+    pix = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+        img_path = tmp.name
+    pix.save(img_path)
+    try:
+        r = subprocess.run(["tesseract", img_path, "stdout", "-l", "eng", "--psm", "6"], capture_output=True, text=True)
+        if r.returncode == 0 and r.stdout:
+            chunks.append(r.stdout.strip())
+    finally:
+        try:
+            os.remove(img_path)
+        except OSError:
+            pass
+
+text = "\\n\\f\\n".join([c for c in chunks if c])
+with open(out_txt, "w", encoding="utf-8") as f:
+    f.write(text)
+print(str(len(text)))
+`;
+  await execFileAsync("python3", ["-c", py, pdfPath, ocrTextPath], { maxBuffer: 20 * 1024 * 1024 });
+  return readFile(ocrTextPath, "utf8");
+}
+
+async function extractPdfTextRobust(pdfBytes: Buffer, pdfPath: string, outDir: string): Promise<string> {
   const failures: string[] = [];
-  try {
-    ensurePromiseWithResolvers();
-    const { default: PDFParse } = await import("pdf-parse2");
-    const parser = new PDFParse();
-    const parsed = await parser.loadPDF(pdfBytes);
-    const text = parsed?.text?.trim() ?? "";
-    if (text) return text;
-    failures.push("pdf-parse2 returned empty text");
-  } catch (error) {
-    failures.push(`pdf-parse2 failed: ${error instanceof Error ? error.message : String(error)}`);
-  }
 
   try {
     const PDFParser = (await import("pdf2json")).default;
@@ -82,7 +95,7 @@ async function extractPdfTextRobust(pdfBytes: Buffer): Promise<string> {
         const pages = (pdfData.Pages ?? []).map((page) =>
           (page.Texts ?? [])
             .flatMap((t) => t.R ?? [])
-            .map((r) => decodeURIComponent(r.T ?? ""))
+            .map((r) => safeDecodePdfTextToken(r.T ?? ""))
             .join(" ")
             .trim(),
         );
@@ -94,6 +107,14 @@ async function extractPdfTextRobust(pdfBytes: Buffer): Promise<string> {
     failures.push("pdf2json returned empty text");
   } catch (error) {
     failures.push(`pdf2json failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  try {
+    const ocrText = (await extractPdfTextViaOcr(pdfPath, outDir)).trim();
+    if (ocrText) return ocrText;
+    failures.push("OCR returned empty text");
+  } catch (error) {
+    failures.push(`OCR failed: ${error instanceof Error ? error.message : String(error)}`);
   }
 
   throw new Error(failures.join(" | "));
@@ -141,7 +162,7 @@ async function fetchArxivPdfFallbackContent(arxivUrl: string, query?: string, ru
   const pdfPath = path.join(outDir, "source.pdf");
   const textPath = path.join(outDir, "text.txt");
   await writeFile(pdfPath, pdfBytes);
-  const text = await extractPdfTextRobust(pdfBytes);
+  const text = await extractPdfTextRobust(pdfBytes, pdfPath, outDir);
   if (!text.trim()) throw new Error(`PDF text extraction failed for ${arxivUrl}`);
   await writeFile(textPath, text, "utf8");
   return readFile(textPath, "utf8");
