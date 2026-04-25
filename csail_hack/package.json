@@ -12,6 +12,7 @@
     "@xyflow/react": "^12.10.2",
     "fast-xml-parser": "^5.7.2",
     "next": "16.2.4",
+    "pdf-parse": "^2.4.5",
     "react": "19.2.4",
     "react-dom": "19.2.4"
   },

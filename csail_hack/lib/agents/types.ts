@@ -9,5 +9,7 @@ import type { ResearchPaper } from "@/lib/papers";
  */
 export type AgentInput = {
   paper: ResearchPaper;
+  query?: string;
+  runId?: string;
   fullText?: string;
 };
