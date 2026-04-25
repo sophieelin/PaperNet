@@ -27,6 +27,24 @@ const dateRange = (daysBack: number) => {
 
 const extractArxivId = (id = "") => id.split("/abs/")[1]?.trim();
 
+const toResearchPaper = (entry: ArxivEntry): ResearchPaper | null => {
+  const authors = toArray(entry.author).map((a) => a.name?.trim()).filter(Boolean) as string[];
+  const id = extractArxivId(entry.id);
+  if (!id || !entry.title) return null;
+  const url = toArray(entry.link).find((l) => l["@_rel"] === "alternate")?.["@_href"] ?? entry.id;
+  return {
+    id: `arxiv:${id}`,
+    source: "arxiv",
+    title: entry.title.replace(/\s+/g, " ").trim(),
+    summary: entry.summary?.replace(/\s+/g, " ").trim(),
+    authors,
+    published: entry.published,
+    year: entry.published ? Number(entry.published.slice(0, 4)) : undefined,
+    url,
+    arxivId: id,
+  };
+};
+
 export async function searchRecentArxivPapers(
   query: string,
   maxResults = 20,
@@ -56,22 +74,32 @@ export async function searchRecentArxivPapers(
   const xml = await response.text();
   const parsed = parser.parse(xml) as { feed?: { entry?: ArxivEntry | ArxivEntry[] } };
   return toArray(parsed.feed?.entry).reduce<ResearchPaper[]>((papers, entry) => {
-    const authors = toArray(entry.author).map((a) => a.name?.trim()).filter(Boolean) as string[];
-    const id = extractArxivId(entry.id);
-    if (!id || !entry.title) return papers;
-    const url = toArray(entry.link).find((l) => l["@_rel"] === "alternate")?.["@_href"] ?? entry.id;
-    papers.push({
-      id: `arxiv:${id}`,
-      source: "arxiv",
-      title: entry.title.replace(/\s+/g, " ").trim(),
-      summary: entry.summary?.replace(/\s+/g, " ").trim(),
-      authors,
-      published: entry.published,
-      year: entry.published ? Number(entry.published.slice(0, 4)) : undefined,
-      url,
-      arxivId: id,
-    });
+    const paper = toResearchPaper(entry);
+    if (paper) papers.push(paper);
     return papers;
   }, []);
 }
 
+export async function fetchArxivPapersByIds(ids: string[]): Promise<ResearchPaper[]> {
+  const uniqueIds = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+  if (uniqueIds.length === 0) return [];
+
+  const params = new URLSearchParams({
+    id_list: uniqueIds.join(","),
+    max_results: String(uniqueIds.length),
+  });
+
+  const response = await fetch(`${ARXIV_ENDPOINT}?${params.toString()}`, {
+    headers: { "User-Agent": "csail-hack-research-graph/1.0" },
+    cache: "no-store",
+  });
+  if (!response.ok) throw new Error(`arXiv request failed: ${response.status}`);
+
+  const xml = await response.text();
+  const parsed = parser.parse(xml) as { feed?: { entry?: ArxivEntry | ArxivEntry[] } };
+  return toArray(parsed.feed?.entry).reduce<ResearchPaper[]>((papers, entry) => {
+    const paper = toResearchPaper(entry);
+    if (paper) papers.push(paper);
+    return papers;
+  }, []);
+}

@@ -1,6 +1,6 @@
 # Research Citation Mapper
 
-A minimal Next.js app that turns a research topic into an interactive graph of recent papers and their most-cited references. Type a query, see seed papers from arXiv as nodes, then watch the graph expand with high-impact citations pulled from Semantic Scholar.
+A minimal Next.js app that turns a research topic into an interactive graph of recent papers and their most-cited references. Type a query, see seed papers from arXiv as nodes, then watch the graph expand with high-impact citations discovered through Semantic Scholar and hydrated from arXiv.
 
 Built with Next.js 16, React 19, TypeScript, Tailwind v4, and [`@xyflow/react`](https://reactflow.dev/) for the graph canvas.
 
@@ -35,7 +35,8 @@ The flow is a two-phase pipeline orchestrated by `app/page.tsx`:
    - The run is persisted to `./data/<runId>/` (`query.json`, `seeds.json`, `seed-graph.json`) via `lib/storage.ts`.
 
 2. **Citations** — `POST /api/research/citations`
-   - For each seed, `lib/semanticScholar.ts` calls `api.semanticscholar.org` for that paper's references and keeps the top 3, ranked by `10 * influentialCitationCount + citationCount`.
+   - For each seed, `lib/semanticScholar.ts` calls `api.semanticscholar.org` for that paper's references, keeps arXiv-backed matches, and ranks candidates by `10 * influentialCitationCount + citationCount`.
+   - The selected citation nodes are fetched from arXiv by id, so stored titles, abstracts, authors, dates, URLs, and node ids come from arXiv while S2 citation counts are retained as ranking/display metrics.
    - Children are deduped across seeds (a paper cited by multiple seeds shows up once with multiple incoming edges).
    - `buildCitationGraph` reuses the seed positions and places each child in a hashed lane/tier below its parents, then draws `smoothstep` edges from parent to child.
    - Results are saved as `citations.json`, `citation-nodes.json`, and `graph.json` under the same `runId`.
@@ -55,8 +56,8 @@ csail_hack/
 │       └── citations/route.ts         # POST runId → citations + full graph
 ├── lib/
 │   ├── papers.ts                      # shared types
-│   ├── arxiv.ts                       # arXiv API client (XML)
-│   ├── semanticScholar.ts             # S2 references + ranking
+│   ├── arxiv.ts                       # arXiv API client (XML search + id lookup)
+│   ├── semanticScholar.ts             # S2 reference discovery + arXiv hydration
 │   ├── graph.ts                       # node/edge layout
 │   └── storage.ts                     # filesystem persistence
 ├── public/                            # static assets
@@ -71,7 +72,7 @@ Defined in `lib/papers.ts`:
 - `CitationSelection` — `{ parentId, children: ResearchPaper[] }`
 - `GraphNodeData` — `{ label, subtitle?, kind: "seed" | "citation" }`
 
-IDs are namespaced (`arxiv:<id>`, `s2:<paperId>`) so seeds and citation children never collide.
+IDs are namespaced by source. Current seed and citation nodes are stored as `arxiv:<id>` because arXiv is the metadata source; citation candidates that match existing seed ids are skipped to avoid duplicate graph nodes.
 
 ## Notes
 

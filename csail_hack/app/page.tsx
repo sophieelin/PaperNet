@@ -85,7 +85,7 @@ function DetailPanel({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-            {paper.source === "arxiv" ? "arXiv seed" : "Cited paper"}
+            {paper.source === "arxiv" ? "arXiv paper" : "Cited paper"}
             {paper.year ? ` · ${paper.year}` : ""}
           </div>
           <h2 className="mt-1 text-base font-semibold leading-snug text-slate-900">
@@ -428,7 +428,7 @@ export default function Home() {
           )}
           {loading && phase === "seeds" && (
             <span className="shrink-0 text-slate-500">
-              Stage 2 of 2 · Semantic Scholar
+              Stage 2 of 2 · Semantic Scholar + arXiv
             </span>
           )}
         </div>
