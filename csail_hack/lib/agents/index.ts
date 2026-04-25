@@ -86,12 +86,25 @@ async function extractPdfTextRobust(pdfBytes: Buffer, pdfPath: string, outDir: s
   try {
     const PDFParser = (await import("pdf2json")).default;
     const text = await new Promise<string>((resolve, reject) => {
+      const originalWarn = console.warn;
+      console.warn = (...args: unknown[]) => {
+        const first = String(args[0] ?? "");
+        if (
+          first.startsWith("Warning: Unsupported: field.type of Link") ||
+          first.startsWith("Warning: NOT valid form element")
+        ) {
+          return;
+        }
+        originalWarn(...args);
+      };
       const parser = new PDFParser();
       parser.on("pdfParser_dataError", (errMsg: Error | { parserError: Error }) => {
+        console.warn = originalWarn;
         if (errMsg instanceof Error) return reject(errMsg);
         return reject(errMsg.parserError ?? new Error("pdf2json parse error"));
       });
       parser.on("pdfParser_dataReady", (pdfData: { Pages?: Array<{ Texts?: Array<{ R?: Array<{ T?: string }> }> }> }) => {
+        console.warn = originalWarn;
         const pages = (pdfData.Pages ?? []).map((page) =>
           (page.Texts ?? [])
             .flatMap((t) => t.R ?? [])

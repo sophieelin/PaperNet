@@ -61,11 +61,45 @@ const getAttribute = (html: string, attribute: string) => {
   return html.match(pattern)?.[1];
 };
 
-const absoluteUrl = (url: string) => {
+const normalizeArxivFigureUrl = (url: string) => {
+  if (!url.startsWith("https://arxiv.org/")) return url;
   try {
-    return new URL(url, "https://arxiv.org/").toString();
+    const parsed = new URL(url);
+    const segments = parsed.pathname.split("/").filter(Boolean);
+    const withHtml =
+      segments[0] === "html" ? segments : ["html", ...segments];
+
+    // Fix duplicate-id bug: /html/<id>/<id>/... -> /html/<id>/...
+    if (
+      withHtml.length >= 3 &&
+      withHtml[0] === "html" &&
+      withHtml[1] === withHtml[2]
+    ) {
+      withHtml.splice(2, 1);
+    }
+    parsed.pathname = `/${withHtml.join("/")}`;
+    return parsed.toString();
   } catch {
-    return url;
+    if (url.startsWith("https://arxiv.org/html/")) return url;
+    return url.replace("https://arxiv.org/", "https://arxiv.org/html/");
+  }
+};
+
+const absoluteUrl = (url: string, paper?: AgentInput["paper"]) => {
+  try {
+    const raw = url.trim();
+    if (/^https?:\/\//i.test(raw)) return normalizeArxivFigureUrl(raw);
+
+    const arxivId = paper?.arxivId ?? "";
+    if (raw.startsWith("/")) {
+      return normalizeArxivFigureUrl(`https://arxiv.org${raw}`);
+    }
+    if (arxivId) {
+      return normalizeArxivFigureUrl(`https://arxiv.org/html/${arxivId}/${raw}`);
+    }
+    return normalizeArxivFigureUrl(`https://arxiv.org/html/${raw}`);
+  } catch {
+    return normalizeArxivFigureUrl(url);
   }
 };
 
@@ -78,6 +112,7 @@ const extractFigureNumber = (caption: string | undefined, index: number) =>
 const toCandidate = (
   imageTag: string,
   sourceIndex: number,
+  paper: AgentInput["paper"],
   caption?: string,
 ): FigureCandidate | null => {
   const rawImageUrl = getAttribute(imageTag, "src") ?? getAttribute(imageTag, "data-src");
@@ -85,7 +120,7 @@ const toCandidate = (
 
   const cleanCaption = truncate(caption?.replace(/\s+/g, " ").trim());
   const altText = truncate(getAttribute(imageTag, "alt")?.replace(/\s+/g, " ").trim(), 300);
-  const imageUrl = absoluteUrl(rawImageUrl);
+  const imageUrl = absoluteUrl(rawImageUrl, paper);
   return {
     id: `figure-${sourceIndex + 1}`,
     sourceIndex,
@@ -105,21 +140,23 @@ const dedupeCandidates = (candidates: FigureCandidate[]) => {
   });
 };
 
-const extractFigureCandidates = (html: string): FigureCandidate[] => {
+const extractFigureCandidates = (html: string, paper: AgentInput["paper"]): FigureCandidate[] => {
   const figureCandidates = [...html.matchAll(/<figure\b[\s\S]*?<\/figure>/gi)].flatMap(
     (match, index) => {
       const figureHtml = match[0];
       const imageTag = figureHtml.match(/<img\b[^>]*>/i)?.[0];
       const captionHtml = figureHtml.match(/<figcaption\b[^>]*>([\s\S]*?)<\/figcaption>/i)?.[1];
       if (!imageTag) return [];
-      return toCandidate(imageTag, index, captionHtml ? stripTags(captionHtml) : undefined) ?? [];
+      return (
+        toCandidate(imageTag, index, paper, captionHtml ? stripTags(captionHtml) : undefined) ?? []
+      );
     },
   );
 
   if (figureCandidates.length > 0) return dedupeCandidates(figureCandidates).slice(0, MAX_CANDIDATES);
 
   const imageCandidates = [...html.matchAll(/<img\b[^>]*>/gi)].flatMap((match, index) =>
-    toCandidate(match[0], index) ?? [],
+    toCandidate(match[0], index, paper) ?? [],
   );
   return dedupeCandidates(imageCandidates).slice(0, MAX_CANDIDATES);
 };
@@ -229,7 +266,7 @@ export async function runFiguresAgent(input: AgentInput): Promise<FiguresResult>
   const fullText = input.fullText;
   if (!isHtmlWithImages(fullText)) return { figures: [] };
 
-  const candidates = extractFigureCandidates(fullText);
+  const candidates = extractFigureCandidates(fullText, input.paper);
   if (candidates.length === 0) return { figures: [] };
 
   const selection = await selectFigureWithOpenAI(input, candidates).catch(() => undefined);

@@ -8,6 +8,11 @@ type StoredGraph = {
   nodes: Array<Node<GraphNodeData>>;
 };
 
+type SummaryCardFile = Array<{
+  paperId: string;
+  card: Awaited<ReturnType<typeof buildSummaryCard>>;
+}>;
+
 function hasPaperId(
   paper: unknown,
 ): paper is GraphNodeData["paper"] & { id: string } {
@@ -48,6 +53,22 @@ export async function POST(request: Request) {
       { error: error instanceof Error ? error.message : "summary-card run failed" },
       { status: 500 },
     );
+  }
+}
+
+export async function GET(request: Request) {
+  const url = new URL(request.url);
+  const runId = url.searchParams.get("runId")?.trim();
+  if (!runId) return NextResponse.json({ error: "runId is required" }, { status: 400 });
+  try {
+    const cards = await readRunData<SummaryCardFile>(runId, "summary-cards.json");
+    return NextResponse.json({ runId, cards, count: cards.length });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "summary-cards not found";
+    if (message.includes("ENOENT") || message.includes("File not found")) {
+      return NextResponse.json({ runId, cards: [], count: 0 });
+    }
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 

@@ -37,6 +37,18 @@ type GraphPayload = {
   edges: Edge[];
   subtopics?: Subtopic[];
 };
+type SummaryCardData = {
+  summary?: { oneLine?: string; paragraph?: string };
+  methodology?: { methodology?: string; results?: string; futureWork?: string };
+  figures?: { figures?: Array<{ imageUrl: string; caption?: string; description?: string }> };
+};
+type RunsApiResponse = { runs?: string[]; error?: string };
+type RunLoadResponse = {
+  runId: string;
+  query: string;
+  graph: GraphPayload;
+  error?: string;
+};
 type Phase = "idle" | "seeds" | "citations";
 type PaperNodeType = Node<GraphNodeData, "paper">;
 type HaloNodeType = Node<HaloNodeData, "halo">;
@@ -205,14 +217,22 @@ function HaloNode({ data }: NodeProps<HaloNodeType>) {
 
 function DetailPanel({
   paper,
+  card,
   onClose,
 }: {
   paper: ResearchPaper | null;
+  card: SummaryCardData | null;
   onClose: () => void;
 }) {
   if (!paper) return null;
+  const title = card?.summary?.oneLine?.trim() || paper.title;
+  const paragraph = card?.summary?.paragraph?.trim() || paper.summary;
+  const methodology = card?.methodology?.methodology?.trim() ?? "";
+  const results = card?.methodology?.results?.trim() ?? "";
+  const futureWork = card?.methodology?.futureWork?.trim() ?? "";
+  const figures = card?.figures?.figures ?? [];
   return (
-    <aside className="pointer-events-auto absolute right-4 top-4 z-20 flex max-h-[calc(100vh-2rem)] w-[360px] max-w-[90vw] flex-col gap-3 overflow-hidden rounded-2xl border border-slate-700/80 bg-slate-900/95 p-5 text-slate-100 shadow-2xl backdrop-blur">
+    <aside className="pointer-events-auto absolute right-0 top-0 z-20 flex h-full w-[50vw] min-w-[520px] max-w-[980px] flex-col gap-3 overflow-y-auto border-l border-slate-700/80 bg-slate-900/96 p-6 text-slate-100 shadow-2xl backdrop-blur">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
@@ -220,7 +240,7 @@ function DetailPanel({
             {paper.year ? ` · ${paper.year}` : ""}
           </div>
           <h2 className="mt-1 text-base font-semibold leading-snug text-slate-50">
-            {paper.title}
+            {title}
           </h2>
         </div>
         <button
@@ -270,10 +290,65 @@ function DetailPanel({
         </div>
       )}
 
-      {paper.summary && (
-        <p className="overflow-y-auto pr-1 text-xs leading-relaxed text-slate-300">
-          {paper.summary}
+      {paragraph && (
+        <p className="pr-1 text-xs leading-relaxed text-slate-300">
+          {paragraph}
         </p>
+      )}
+
+      {figures.length > 0 && (
+        <section className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
+          <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+            Figures
+          </h3>
+          <div className="space-y-3">
+            {figures.map((figure, index) => (
+              <article key={`${figure.imageUrl}-${index}`} className="space-y-1.5">
+                <img
+                  src={figure.imageUrl}
+                  alt={figure.caption ?? `Figure ${index + 1}`}
+                  className="w-full rounded-lg border border-slate-700/80 bg-slate-900 object-contain"
+                  loading="lazy"
+                />
+                {figure.caption && (
+                  <p className="text-[11px] leading-relaxed text-slate-300">{figure.caption}</p>
+                )}
+                {figure.description && (
+                  <p className="text-[11px] leading-relaxed text-slate-400">
+                    {figure.description}
+                  </p>
+                )}
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {methodology && (
+        <section className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
+          <h3 className="mb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+            Methodology
+          </h3>
+          <p className="text-xs leading-relaxed text-slate-300">{methodology}</p>
+        </section>
+      )}
+
+      {results && (
+        <section className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
+          <h3 className="mb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+            Results
+          </h3>
+          <p className="text-xs leading-relaxed text-slate-300">{results}</p>
+        </section>
+      )}
+
+      {futureWork && (
+        <section className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
+          <h3 className="mb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+            Future Work
+          </h3>
+          <p className="text-xs leading-relaxed text-slate-300">{futureWork}</p>
+        </section>
       )}
 
       {paper.url && (
@@ -398,6 +473,13 @@ export default function Home() {
   const [flowInstance, setFlowInstance] =
     useState<ReactFlowInstance | null>(null);
   const [selected, setSelected] = useState<ResearchPaper | null>(null);
+  const [selectedCard, setSelectedCard] = useState<SummaryCardData | null>(null);
+  const [summaryCardsByPaperId, setSummaryCardsByPaperId] = useState<
+    Record<string, SummaryCardData>
+  >({});
+  const [runsMenuOpen, setRunsMenuOpen] = useState(false);
+  const [availableRuns, setAvailableRuns] = useState<string[]>([]);
+  const [loadingRuns, setLoadingRuns] = useState(false);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [hoveredCluster, setHoveredCluster] = useState<string | null>(null);
 
@@ -545,6 +627,8 @@ export default function Home() {
       setLoading(true);
       setError("");
       setSelected(null);
+      setSelectedCard(null);
+      setSummaryCardsByPaperId({});
       setPhase("idle");
       setGraph({ nodes: [], edges: [] });
       try {
@@ -599,6 +683,22 @@ export default function Home() {
     void runQuery(example);
   };
 
+  const loadSummaryCards = useCallback(async () => {
+    if (!runId) return {};
+    const cardsResponse = await fetch(
+      `/api/research/summary-card?runId=${encodeURIComponent(runId)}`,
+    );
+    if (!cardsResponse.ok) return {};
+    const payload = (await cardsResponse.json()) as {
+      cards?: Array<{ paperId: string; card: SummaryCardData }>;
+    };
+    const index = Object.fromEntries(
+      (payload.cards ?? []).map((entry) => [entry.paperId, entry.card]),
+    ) as Record<string, SummaryCardData>;
+    setSummaryCardsByPaperId(index);
+    return index;
+  }, [runId]);
+
   const runSummaryCards = async () => {
     if (!runId || runningSummaryCards) return;
     setRunningSummaryCards(true);
@@ -613,12 +713,52 @@ export default function Home() {
       const data = (await response.json()) as { error?: string; processed?: number };
       if (!response.ok) throw new Error(data.error ?? "Failed to run summary cards");
       setSummaryStatus(`Summary cards complete (${data.processed ?? 0} papers).`);
+      await loadSummaryCards();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unexpected error");
     } finally {
       setRunningSummaryCards(false);
     }
   };
+
+  const loadRuns = useCallback(async () => {
+    setLoadingRuns(true);
+    try {
+      const response = await fetch("/api/research/runs");
+      const data = (await response.json()) as RunsApiResponse;
+      if (!response.ok) throw new Error(data.error ?? "Failed to load runs");
+      setAvailableRuns(data.runs ?? []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load runs");
+    } finally {
+      setLoadingRuns(false);
+    }
+  }, []);
+
+  const loadExistingRun = useCallback(
+    async (nextRunId: string) => {
+      setError("");
+      setSelected(null);
+      setSelectedCard(null);
+      setRunsMenuOpen(false);
+      try {
+        const response = await fetch(
+          `/api/research/runs?runId=${encodeURIComponent(nextRunId)}`,
+        );
+        const data = (await response.json()) as RunLoadResponse;
+        if (!response.ok) throw new Error(data.error ?? "Failed to load run");
+        setRunId(data.runId);
+        setActiveQuery(data.query ?? "");
+        setQuery(data.query ?? "");
+        setGraph(data.graph);
+        setPhase("citations");
+        setSummaryStatus("");
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to load run");
+      }
+    },
+    [],
+  );
 
   const showEmptyState = !loading && paperNodeCount === 0;
 
@@ -633,7 +773,19 @@ export default function Home() {
         onNodeClick={(_, node) => {
           if (node.type === "halo") return;
           const data = node.data as GraphNodeData;
-          setSelected(data.paper ?? null);
+          const paper = data.paper ?? null;
+          setSelected(paper);
+          if (!paper) {
+            setSelectedCard(null);
+            return;
+          }
+          const existing = summaryCardsByPaperId[paper.id] ?? null;
+          setSelectedCard(existing);
+          if (!existing && runId) {
+            void loadSummaryCards().then((index) => {
+              setSelectedCard(index[paper.id] ?? null);
+            });
+          }
         }}
         onNodeMouseEnter={(_, node) => {
           if (node.type === "halo") return;
@@ -641,7 +793,10 @@ export default function Home() {
         }}
         onNodeMouseLeave={() => setHoverNode(null)}
         onPaneMouseLeave={() => setHoverNode(null)}
-        onPaneClick={() => setSelected(null)}
+        onPaneClick={() => {
+          setSelected(null);
+          setSelectedCard(null);
+        }}
         nodesDraggable={false}
         nodesConnectable={false}
         elementsSelectable
@@ -669,13 +824,69 @@ export default function Home() {
         subtopicCount={subtopics.length}
       />
 
+      <div className="pointer-events-auto absolute left-4 top-24 z-30">
+        <button
+          type="button"
+          onClick={() => {
+            const nextOpen = !runsMenuOpen;
+            setRunsMenuOpen(nextOpen);
+            if (nextOpen && availableRuns.length === 0) void loadRuns();
+          }}
+          aria-label="Open previous runs menu"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-700/80 bg-slate-900/90 text-slate-200 shadow-lg transition hover:bg-slate-800"
+        >
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+          >
+            <path d="M3 6h18M3 12h18M3 18h18" />
+          </svg>
+        </button>
+        {runsMenuOpen && (
+          <div className="mt-2 max-h-[50vh] w-[340px] overflow-y-auto rounded-xl border border-slate-700/80 bg-slate-900/95 p-2 text-xs shadow-2xl backdrop-blur">
+            <div className="mb-1 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+              Previous Runs
+            </div>
+            {loadingRuns ? (
+              <div className="px-2 py-2 text-slate-400">Loading...</div>
+            ) : availableRuns.length === 0 ? (
+              <div className="px-2 py-2 text-slate-500">No runs found.</div>
+            ) : (
+              availableRuns.map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() => void loadExistingRun(item)}
+                  className="block w-full truncate rounded-lg px-2 py-2 text-left text-slate-200 transition hover:bg-slate-800"
+                  title={item}
+                >
+                  {item}
+                </button>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+
       <SubtopicLegend
         subtopics={subtopics}
         hoveredColor={hoveredCluster}
         onHover={setHoveredCluster}
       />
 
-      <DetailPanel paper={selected} onClose={() => setSelected(null)} />
+      <DetailPanel
+        paper={selected}
+        card={selectedCard}
+        onClose={() => {
+          setSelected(null);
+          setSelectedCard(null);
+        }}
+      />
 
       {showEmptyState && (
         <div className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center px-6">
