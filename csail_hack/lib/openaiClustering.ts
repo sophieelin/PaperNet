@@ -8,7 +8,7 @@ type Vector = number[];
  * --- clustering config ---
  */
 export function estimateClustersByPaperCount(totalPapers: number): number {
-  return Math.floor(totalPapers / 15);
+  return Math.floor(totalPapers / 12);
 }
 
 function computeClusterCount(totalPapers: number): number {
