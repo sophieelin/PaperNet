@@ -1,100 +1,133 @@
-# Research Citation Mapper
+# PaperNet — CSAIL Agentic AI
 
-A minimal Next.js app that turns a research topic into an interactive graph of related papers. Type a query, see seed papers discovered through Semantic Scholar, then watch the graph expand with cited papers from arXiv and ACM Digital Library.
+## Authors
 
-Built with Next.js 16, React 19, TypeScript, Tailwind v4, and [`@xyflow/react`](https://reactflow.dev/) for the graph canvas.
+- **Sophie Lin** — [sophlin@mit.edu](mailto:sophlin@mit.edu) — Wellesley College ’27
+- **Shrenik Patel** — [shrenik.d.patel@gmail.com](mailto:shrenik.d.patel@gmail.com) — Rutgers University ’26
+- **Han Nguyen** — [hn103@wellesley.edu](mailto:hn103@wellesley.edu) — Wellesley College ’27
+- **Kenneth Xiong** — [kxiong@olin.edu](mailto:kxiong@olin.edu) — Olin College ’27
 
-## Getting Started
+## The agent’s headline
 
-Install dependencies and start the dev server:
+**Autonomously maps research fields into living paper graphs.**
+
+## What does the agent do?
+
+It takes a research topic, discovers and ranks papers, grows a citation graph, clusters subtopics, and enriches each paper with machine-generated summaries, methods, and figures—so the “living graph” is both browsable and explainable.
+
+## The pain point
+
+Research discovery is still painfully manual: researchers spend hours tracing arXiv papers, following citation trails, and piecing together scattered notes just to understand what has been tried, which papers matter, and where the open problems are.
+
+## The agentic loop
+
+Given a research topic, the agent breaks discovery into stages by finding strong seed papers, expanding through citation networks, pruning irrelevant references, clustering related work, and synthesizing the field’s key themes and open problems. It builds a dynamic graph of papers that enriches each node with summaries, methods, results, figures, and future directions, then refreshes the graph as new papers appear.
+
+## The toolset
+
+Custom agent harness and reasoning engine powered by **GPT‑5 series**, **React Flow** for graph visualization, **arXiv API** and **CrossRef API** for paper retrieval, **OCR** for PDF parsing, and **Semantic Scholar API** for citation metadata.
+
+| Component | Role |
+|-----------|------|
+| GPT‑5 series | Summaries, clustering, methodology, figure selection, query refinement |
+| Semantic Scholar API | Seed search, references, citation counts |
+| arXiv API | Paper metadata and HTML/PDF-backed content |
+| CrossRef API | DOI / ACM-style metadata hydration |
+| OCR | PDF text when HTML is unavailable |
+| React Flow | Interactive paper graph UI (`@xyflow/react`) |
+
+## Autonomous actions
+
+- Discovers relevant papers from the user’s research query and filters them to supported sources such as arXiv and ACM.
+- Expands the graph by recursively retrieving citations and references from the initial paper set, then ranks and retains the most relevant and high-impact works using signals such as citation count, influential citations, and topical fit.
+- Automatically maintains the research graph by adding new papers, restructuring clusters, generating summary cards, selecting representative figures, and inferring semantic edges between related papers.
+
+---
+
+## Code boilerplate
+
+### Prerequisites
+
+- **Node.js** 20+ recommended
+- **npm** (ships with Node)
+
+### Clone and install
 
 ```bash
+git clone <your-repo-url>
+cd csail_hack
 npm install
+```
+
+### Environment
+
+Create `csail_hack/.env.local`:
+
+```bash
+# Required for LLM-powered clustering, summary cards, figure selection, query refinement
+OPENAI_API_KEY=sk-...
+
+# Optional: higher Semantic Scholar rate limits
+# SEMANTIC_SCHOLAR_API_KEY=...
+
+# Optional model overrides (see routes / lib for usage)
+# OPENAI_CLUSTER_MODEL=gpt-4o-mini
+# OPENAI_QUERY_REFINE_MODEL=gpt-4o-mini
+```
+
+### Run locally
+
+```bash
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) and submit a topic in the search bar at the bottom of the screen.
+Open [http://localhost:3000](http://localhost:3000) and enter a research topic in the UI.
 
-Other scripts:
+### Other scripts
 
 ```bash
 npm run build   # production build
-npm run start   # run the production build
+npm run start   # serve production build
 npm run lint    # eslint
 ```
 
-No API keys are required to start — the app calls public Semantic Scholar, arXiv, Crossref, and ACM DL endpoints anonymously. Setting `SEMANTIC_SCHOLAR_API_KEY` gives Semantic Scholar requests their authenticated rate limit.
+### Stack
 
-### Optional: OpenAI-powered topic clustering
+- **Next.js** 16 · **React** 19 · **TypeScript** · **Tailwind** v4
+- **React Flow** (`@xyflow/react`) + **dagre** for layout
+- Data persisted under `./data/<runId>/` (JSON per run; no DB in the default setup)
 
-If you set `OPENAI_API_KEY`, the citations route asks OpenAI (default `gpt-4o-mini`, in JSON mode) to cluster every seed and citation into 3–7 named subtopics. Each paper is then guaranteed to live under exactly one topic — both in colour and in spatial layout. Without the key, the app falls back to the built-in heuristic clusterer (bibliographic coupling + shared title phrases). Add it to a local `.env.local` like so:
+### API flow (high level)
 
-```bash
-# csail_hack/.env.local
-OPENAI_API_KEY=sk-...
-# Optional: pick a different model
-# OPENAI_CLUSTER_MODEL=gpt-4o
-```
+1. **`POST /api/research/seeds`** — Semantic Scholar search → supported arXiv/ACM seeds → seed graph.
+2. **`POST /api/research/citations`** — References per seed, hydration, full graph + optional OpenAI clustering.
+3. **`POST /api/research/summary-card`** — Multi-agent summaries, figures, methodology from HTML or PDF.
 
-Restart `npm run dev` after editing `.env.local`. You'll see `[citations] using OpenAI clustering: N topics` in the dev server log when it kicks in.
+---
 
-## How It Works
-
-The flow is a two-phase pipeline orchestrated by `app/page.tsx`:
-
-1. **Seeds** — `POST /api/research/seeds`
-   - `lib/semanticScholar.ts#searchSupportedPapers` queries Semantic Scholar for relevant papers, then keeps supported records that have either an arXiv id or an ACM DOI.
-   - `lib/graph.ts#buildSeedGraph` lays the seeds out in a centered grid with collision avoidance.
-   - The run is persisted to `./data/<runId>/` (`query.json`, `seeds.json`, `seed-graph.json`) via `lib/storage.ts`.
-
-2. **Cited papers** — `POST /api/research/citations`
-   - `lib/semanticScholar.ts#fetchTopCitationsForSeeds` makes one Semantic Scholar references call per seed paper, keeps only cited papers with either an arXiv id or an ACM DOI, and ranks them by impact score (`10 * influentialCitationCount + citationCount`).
-   - The top three cited papers per seed are hydrated from their source provider: arXiv records are fetched through arXiv, and ACM DOI records are filled through Crossref/ACM metadata.
-   - Stored graph nodes carry provider-specific URLs: arXiv records use `arxiv.org/abs`, `/html`, and `/pdf`; ACM records use `dl.acm.org/doi`, `/doi/fullHtml`, and `/doi/pdf`.
-   - Children are deduped across seeds (a paper related to multiple seeds shows up once with multiple incoming edges).
-   - `buildCitationGraph` reuses the seed positions and places each child in a hashed lane/tier below its parents, then draws `smoothstep` edges from parent to child.
-   - Results are saved as `citations.json`, `citation-nodes.json`, and `graph.json` under the same `runId`.
-
-3. **Source content** — `POST /api/research/summary-card`
-   - `lib/agents/index.ts` first tries the paper's provider HTML (`arxiv.org/html/<id>` or `dl.acm.org/doi/fullHtml/<doi>`).
-   - arXiv falls back to PDF text extraction. ACM uses a short HTML attempt and then falls back to metadata/abstract text so slow ACM DL pages do not block the run.
-
-The UI shows the seed-only graph as soon as phase 1 finishes, then swaps in the full citation graph when phase 2 returns. React Flow's `fitView` is called after each phase to reframe the camera.
-
-## Project Structure
+## Project structure
 
 ```
 csail_hack/
 ├── app/
-│   ├── page.tsx                       # search box + ReactFlow canvas (client)
-│   ├── layout.tsx                     # root layout, fonts, metadata
-│   ├── globals.css                    # Tailwind + theme tokens
-│   └── api/research/
-│       ├── seeds/route.ts             # POST query → seeds + seed graph
-│       └── citations/route.ts         # POST runId → citations + full graph
+│   ├── page.tsx                 # Search + React Flow canvas
+│   ├── layout.tsx
+│   ├── globals.css
+│   └── api/research/            # seeds, citations, summary-card, update, …
 ├── lib/
-│   ├── papers.ts                      # shared types
-│   ├── arxiv.ts                       # arXiv API client (XML id lookup helpers)
-│   ├── semanticScholar.ts             # S2 seed discovery + cited-paper ranking
-│   ├── graph.ts                       # node/edge layout + heuristic clustering
-│   ├── openaiClustering.ts            # optional LLM-driven topic assignment
-│   └── storage.ts                     # filesystem persistence
-├── public/                            # static assets
-└── data/                              # per-run JSON output (gitignored)
+│   ├── agents/                  # Summary, figures, methodology agents
+│   ├── papers.ts                # Shared types
+│   ├── arxiv.ts                 # arXiv search + id lookup
+│   ├── semanticScholar.ts      # S2 search + references
+│   ├── graph.ts                 # Layout, clustering, semantic edges
+│   ├── openaiClustering*.ts     # Optional LLM topic assignment
+│   ├── figureImageUrl.ts        # Figure URL normalization / proxy
+│   ├── refineSearchQuery.ts     # OpenAI search-query refinement
+│   └── storage.ts
+├── public/
+└── data/                        # Per-run JSON (typically gitignored)
 ```
 
-## Data Model
+## License
 
-Defined in `lib/papers.ts`:
-
-- `ResearchPaper` — `{ id, source, title, summary?, authors[], year?, published?, url?, htmlUrl?, pdfUrl?, arxivId?, doi?, s2PaperId?, citationCount?, influentialCitationCount? }`
-- `CitationSelection` — `{ parentId, children: ResearchPaper[] }`
-- `GraphNodeData` — `{ label, subtitle?, kind: "seed" | "citation" }`
-
-IDs are namespaced by source: `arxiv:<id>` for arXiv papers and `acm:<doi>` for ACM DL papers.
-
-## Notes
-
-- **No database.** Each run is persisted as JSON under `./data/<runId>/` (gitignored). Fine for local hacking; replace with a real store before deploying.
-- **No auth on external APIs.** Semantic Scholar is used for seed search and per-seed reference lookup, with retry/backoff. Add `SEMANTIC_SCHOLAR_API_KEY` to reduce 429s.
-- **Deterministic layout.** Child lane/tier selection is driven by a hash of the paper id, so the same data renders the same map every time.
+Add your license here.
