@@ -37,10 +37,15 @@ type GraphPayload = {
   edges: Edge[];
   subtopics?: Subtopic[];
 };
+type EdgeViewMode = "citation" | "semantic";
 type SummaryCardData = {
   summary?: { oneLine?: string; paragraph?: string };
   methodology?: { methodology?: string; results?: string; futureWork?: string };
   figures?: { figures?: Array<{ imageUrl: string; caption?: string; description?: string }> };
+};
+type IdeationData = {
+  exploredDirections: string[];
+  futureDirections: string[];
 };
 type RunsApiResponse = { runs?: string[]; error?: string };
 type RunLoadResponse = {
@@ -232,7 +237,7 @@ function DetailPanel({
   const futureWork = card?.methodology?.futureWork?.trim() ?? "";
   const figures = card?.figures?.figures ?? [];
   return (
-    <aside className="pointer-events-auto absolute right-0 top-0 z-20 flex h-full w-[50vw] min-w-[520px] max-w-[980px] flex-col gap-3 overflow-y-auto border-l border-slate-700/80 bg-slate-900/96 p-6 text-slate-100 shadow-2xl backdrop-blur">
+    <aside className="pointer-events-auto absolute right-0 top-0 z-[70] flex h-full w-[50vw] min-w-[520px] max-w-[980px] flex-col gap-3 overflow-y-auto border-l border-slate-700/80 bg-slate-900/96 p-6 text-slate-100 shadow-2xl backdrop-blur">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
@@ -383,37 +388,34 @@ function StatusPill({
   nodeCount,
   edgeCount,
   subtopicCount,
+  statusText,
+  statusBusy,
 }: {
   phase: Phase;
   loading: boolean;
   nodeCount: number;
   edgeCount: number;
   subtopicCount: number;
+  statusText: string;
+  statusBusy: boolean;
 }) {
   let dot = "bg-slate-600";
-  let label = "Idle";
+  let label = statusText || "Idle";
   if (loading && phase === "idle") {
-    dot = "bg-amber-400 animate-pulse";
-    label = "Searching arXiv...";
+    dot = "bg-amber-400";
   } else if (loading && phase === "seeds") {
-    dot = "bg-amber-400 animate-pulse";
-    label = `Fetching citations for ${nodeCount} seeds...`;
+    dot = "bg-amber-400";
   } else if (phase === "seeds") {
     dot = "bg-sky-400";
-    label = `Seeds ready · ${nodeCount} nodes`;
   } else if (phase === "citations") {
     dot = "bg-emerald-400";
-    label =
-      subtopicCount > 0
-        ? `${subtopicCount} subtopics · ${nodeCount} nodes · ${edgeCount} edges`
-        : `Graph ready · ${nodeCount} nodes · ${edgeCount} edges`;
   }
   return (
-    <div className="pointer-events-auto absolute left-4 top-4 z-20 flex items-center gap-2 rounded-full border border-slate-700/80 bg-slate-900/85 px-3 py-1.5 text-xs text-slate-300 shadow-lg backdrop-blur">
-      <span className="font-semibold text-slate-100">Citation Mapper</span>
+    <div className="pointer-events-auto absolute left-16 top-4 z-20 flex items-center gap-2 rounded-full border border-slate-700/80 bg-slate-900/85 px-3 py-1.5 text-xs text-slate-300 shadow-lg backdrop-blur">
+      <span className="font-semibold text-slate-100">PaperNet</span>
       <span className="text-slate-600">·</span>
-      <span className={`inline-block h-1.5 w-1.5 rounded-full ${dot}`} />
-      <span>{label}</span>
+      <span className={`inline-block h-1.5 w-1.5 rounded-full ${dot} ${statusBusy ? "animate-pulse" : ""}`} />
+      <span>{`Status: ${label}`}</span>
     </div>
   );
 }
@@ -422,40 +424,75 @@ function SubtopicLegend({
   subtopics,
   hoveredColor,
   onHover,
+  collapsed,
+  onToggleCollapsed,
+  showSemanticLegend,
 }: {
   subtopics: Subtopic[];
   hoveredColor: string | null;
   onHover: (color: string | null) => void;
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
+  showSemanticLegend: boolean;
 }) {
-  if (subtopics.length === 0) return null;
+  if (subtopics.length === 0 && !showSemanticLegend) return null;
   return (
-    <div className="pointer-events-auto absolute left-4 top-14 z-20 flex max-w-[260px] flex-col gap-1 rounded-2xl border border-slate-700/80 bg-slate-900/85 p-2.5 text-xs text-slate-200 shadow-lg backdrop-blur">
-      <div className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
-        Subtopics
-      </div>
-      {subtopics.map((topic) => {
-        const isActive = hoveredColor === null || hoveredColor === topic.color;
-        return (
-          <button
-            key={topic.color + topic.label}
-            type="button"
-            onMouseEnter={() => onHover(topic.color)}
-            onMouseLeave={() => onHover(null)}
-            className="flex items-center gap-2 rounded-lg px-2 py-1 text-left transition hover:bg-slate-800"
-            style={{ opacity: isActive ? 1 : 0.35 }}
-          >
-            <span
-              className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
-              style={{ background: topic.color, boxShadow: `0 0 8px ${topic.color}80` }}
-              aria-hidden
-            />
-            <span className="truncate text-slate-100">{topic.label}</span>
-            <span className="ml-auto pl-1 text-[10px] text-slate-500">
-              {topic.seedIds.length}
-            </span>
-          </button>
-        );
-      })}
+    <div className="pointer-events-auto absolute left-4 top-14 z-20 flex max-w-[270px] flex-col gap-1 rounded-2xl border border-slate-700/80 bg-slate-900/85 p-2.5 text-xs text-slate-200 shadow-lg backdrop-blur">
+      <button
+        type="button"
+        onClick={onToggleCollapsed}
+        className="flex items-center justify-between rounded-lg px-1 py-1 text-left text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400 transition hover:bg-slate-800/70"
+      >
+        <span>Subtopics</span>
+        <span>{collapsed ? "+" : "-"}</span>
+      </button>
+      {!collapsed &&
+        subtopics.map((topic) => {
+          const isActive = hoveredColor === null || hoveredColor === topic.color;
+          return (
+            <button
+              key={topic.color + topic.label}
+              type="button"
+              onMouseEnter={() => onHover(topic.color)}
+              onMouseLeave={() => onHover(null)}
+              className="flex items-center gap-2 rounded-lg px-2 py-1 text-left transition hover:bg-slate-800"
+              style={{ opacity: isActive ? 1 : 0.35 }}
+            >
+              <span
+                className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
+                style={{ background: topic.color, boxShadow: `0 0 8px ${topic.color}80` }}
+                aria-hidden
+              />
+              <span className="truncate text-slate-100">{topic.label}</span>
+              <span className="ml-auto pl-1 text-[10px] text-slate-500">
+                {topic.seedIds.length}
+              </span>
+            </button>
+          );
+        })}
+      {showSemanticLegend && (
+        <div className="mt-1 border-t border-slate-700/80 pt-1.5">
+          <div className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+            Semantic Edges
+          </div>
+          {[
+            { name: "Builds On", color: "#22c55e", dash: "" },
+            { name: "Similar Approach", color: "#60a5fa", dash: "4 2" },
+            { name: "Contrasting Approach", color: "#f97316", dash: "2 2" },
+          ].map((item) => (
+            <div key={item.name} className="flex items-center gap-2 rounded-md px-2 py-1">
+              <span
+                className="inline-block h-0.5 w-6"
+                style={{
+                  background: item.color,
+                  borderTop: item.dash ? `1px dashed ${item.color}` : undefined,
+                }}
+              />
+              <span className="text-[11px] text-slate-200">{item.name}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -469,7 +506,12 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [summaryStatus, setSummaryStatus] = useState("");
+  const [statusText, setStatusText] = useState("Idle");
   const [runningSummaryCards, setRunningSummaryCards] = useState(false);
+  const [runningSemanticEdges, setRunningSemanticEdges] = useState(false);
+  const [runningIdeation, setRunningIdeation] = useState(false);
+  const [ideation, setIdeation] = useState<IdeationData | null>(null);
+  const [ideationOpen, setIdeationOpen] = useState(false);
   const [flowInstance, setFlowInstance] =
     useState<ReactFlowInstance | null>(null);
   const [selected, setSelected] = useState<ResearchPaper | null>(null);
@@ -477,9 +519,12 @@ export default function Home() {
   const [summaryCardsByPaperId, setSummaryCardsByPaperId] = useState<
     Record<string, SummaryCardData>
   >({});
+  const [semanticEdges, setSemanticEdges] = useState<Edge[]>([]);
+  const [edgeViewMode, setEdgeViewMode] = useState<EdgeViewMode>("citation");
   const [runsMenuOpen, setRunsMenuOpen] = useState(false);
   const [availableRuns, setAvailableRuns] = useState<string[]>([]);
   const [loadingRuns, setLoadingRuns] = useState(false);
+  const [subtopicsCollapsed, setSubtopicsCollapsed] = useState(false);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [hoveredCluster, setHoveredCluster] = useState<string | null>(null);
 
@@ -531,6 +576,11 @@ export default function Home() {
     [graph.nodes],
   );
 
+  const activeEdges =
+    edgeViewMode === "semantic" && semanticEdges.length > 0
+      ? semanticEdges
+      : graph.edges;
+
   const adjacency = useMemo(() => {
     const map = new Map<string, Set<string>>();
     // Halos aren't real graph members — skip them so they never appear
@@ -539,12 +589,12 @@ export default function Home() {
       if (node.type === "halo") continue;
       map.set(node.id, new Set());
     }
-    for (const edge of graph.edges) {
+    for (const edge of activeEdges) {
       map.get(edge.source)?.add(edge.target);
       map.get(edge.target)?.add(edge.source);
     }
     return map;
-  }, [graph.edges, graph.nodes]);
+  }, [activeEdges, graph.nodes]);
 
   // BFS to depth 2 so hovering a seed reveals its citations *and* the
   // other seeds that share those citations, and hovering a citation
@@ -604,8 +654,8 @@ export default function Home() {
   }, [connectedIds, graph.nodes]);
 
   const displayEdges = useMemo(() => {
-    if (!connectedIds) return graph.edges;
-    return graph.edges.map((edge) => {
+    if (!connectedIds) return activeEdges;
+    return activeEdges.map((edge) => {
       const active =
         connectedIds.has(edge.source) && connectedIds.has(edge.target);
       const pe: CSSProperties["pointerEvents"] = active ? "auto" : "none";
@@ -618,60 +668,102 @@ export default function Home() {
         },
       };
     });
-  }, [connectedIds, graph.edges]);
+  }, [activeEdges, connectedIds]);
 
-  const runQuery = useCallback(
-    async (raw: string) => {
-      const nextQuery = raw.trim();
-      if (!nextQuery || loading) return;
-      setLoading(true);
-      setError("");
-      setSelected(null);
-      setSelectedCard(null);
-      setSummaryCardsByPaperId({});
-      setPhase("idle");
-      setGraph({ nodes: [], edges: [] });
-      try {
-        const seedsRes = await fetch("/api/research/seeds", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query: nextQuery }),
-        });
-        const seedsData = (await seedsRes.json()) as {
-          error?: string;
-          runId: string;
-          graph: GraphPayload;
-        };
-        if (!seedsRes.ok)
-          throw new Error(seedsData.error ?? "Failed to generate seeds");
-        setRunId(seedsData.runId);
-        setActiveQuery(nextQuery);
-        setGraph(seedsData.graph);
-        setPhase("seeds");
+  const runQuery = async (raw: string) => {
+    const nextQuery = raw.trim();
+    if (!nextQuery || loading) return;
+    setLoading(true);
+    setStatusText("Searching arXiv...");
+    setError("");
+    setSelected(null);
+    setSelectedCard(null);
+    setSummaryCardsByPaperId({});
+    setSemanticEdges([]);
+    setEdgeViewMode("citation");
+    setPhase("idle");
+    setGraph({ nodes: [], edges: [] });
+    try {
+      const seedsRes = await fetch("/api/research/seeds", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: nextQuery }),
+      });
+      const seedsData = (await seedsRes.json()) as {
+        error?: string;
+        runId: string;
+        graph: GraphPayload;
+      };
+      if (!seedsRes.ok)
+        throw new Error(seedsData.error ?? "Failed to generate seeds");
+      setRunId(seedsData.runId);
+      setActiveQuery(nextQuery);
+      setGraph(seedsData.graph);
+      setPhase("seeds");
+      setStatusText("Fetching citations...");
 
-        const citationsRes = await fetch("/api/research/citations", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ runId: seedsData.runId }),
-        });
-        const citationsData = (await citationsRes.json()) as {
-          error?: string;
-          graph: GraphPayload;
-        };
-        if (!citationsRes.ok)
-          throw new Error(
-            citationsData.error ?? "Failed to generate citations",
-          );
-        setGraph(citationsData.graph);
-        setPhase("citations");
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Unexpected error");
-      } finally {
-        setLoading(false);
+      const citationsRes = await fetch("/api/research/citations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ runId: seedsData.runId }),
+      });
+      const citationsData = (await citationsRes.json()) as {
+        error?: string;
+        graph: GraphPayload;
+      };
+      if (!citationsRes.ok)
+        throw new Error(
+          citationsData.error ?? "Failed to generate citations",
+        );
+      setGraph(citationsData.graph);
+      setPhase("citations");
+
+      setRunningSummaryCards(true);
+      setStatusText("Generating summary cards...");
+      const summaryResponse = await fetch("/api/research/summary-card", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ runId: seedsData.runId, query: nextQuery }),
+      });
+      const summaryData = (await summaryResponse.json()) as {
+        error?: string;
+        processed?: number;
+      };
+      if (!summaryResponse.ok) {
+        throw new Error(summaryData.error ?? "Failed to run summary cards");
       }
-    },
-    [loading],
-  );
+      setSummaryStatus(`Summary cards complete (${summaryData.processed ?? 0} papers).`);
+      await loadSummaryCards(seedsData.runId);
+      setRunningSummaryCards(false);
+
+      setRunningSemanticEdges(true);
+      setStatusText("Generating custom edges...");
+      const semanticResponse = await fetch("/api/research/semantic-edges", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ runId: seedsData.runId }),
+      });
+      const semanticData = (await semanticResponse.json()) as {
+        error?: string;
+        count?: number;
+      };
+      if (!semanticResponse.ok) {
+        throw new Error(semanticData.error ?? "Failed to generate custom edges");
+      }
+      const edges = await loadSemanticEdges(seedsData.runId);
+      if (edges.length > 0) setEdgeViewMode("semantic");
+      setRunningSemanticEdges(false);
+
+      setStatusText("Complete");
+    } catch (err) {
+      setRunningSummaryCards(false);
+      setRunningSemanticEdges(false);
+      setError(err instanceof Error ? err.message : "Unexpected error");
+      setStatusText("Failed");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -683,41 +775,90 @@ export default function Home() {
     void runQuery(example);
   };
 
-  const loadSummaryCards = useCallback(async () => {
-    if (!runId) return {};
-    const cardsResponse = await fetch(
-      `/api/research/summary-card?runId=${encodeURIComponent(runId)}`,
-    );
-    if (!cardsResponse.ok) return {};
-    const payload = (await cardsResponse.json()) as {
-      cards?: Array<{ paperId: string; card: SummaryCardData }>;
+  const loadSummaryCards = useCallback(
+    async (targetRunId?: string) => {
+      const id = targetRunId ?? runId;
+      if (!id) return {};
+      const cardsResponse = await fetch(
+        `/api/research/summary-card?runId=${encodeURIComponent(id)}`,
+      );
+      if (!cardsResponse.ok) return {};
+      const payload = (await cardsResponse.json()) as {
+        cards?: Array<{ paperId: string; card: SummaryCardData }>;
+      };
+      const index = Object.fromEntries(
+        (payload.cards ?? []).map((entry) => [entry.paperId, entry.card]),
+      ) as Record<string, SummaryCardData>;
+      setSummaryCardsByPaperId(index);
+      return index;
+    },
+    [runId],
+  );
+
+  const loadSemanticEdges = useCallback(
+    async (targetRunId?: string) => {
+      const id = targetRunId ?? runId;
+      if (!id) return [] as Edge[];
+      const response = await fetch(
+        `/api/research/semantic-edges?runId=${encodeURIComponent(id)}`,
+      );
+      const data = (await response.json()) as {
+        edges?: Edge[];
+        error?: string;
+      };
+      if (!response.ok) throw new Error(data.error ?? "Failed to load semantic edges");
+      const edges = data.edges ?? [];
+      setSemanticEdges(edges);
+      return edges;
+    },
+    [runId],
+  );
+
+  const loadIdeation = useCallback(async () => {
+    if (!runId) return null;
+    const response = await fetch(`/api/research/ideate?runId=${encodeURIComponent(runId)}`);
+    const data = (await response.json()) as IdeationData & { error?: string };
+    if (!response.ok) throw new Error(data.error ?? "Failed to load ideation");
+    const next = {
+      exploredDirections: data.exploredDirections ?? [],
+      futureDirections: data.futureDirections ?? [],
     };
-    const index = Object.fromEntries(
-      (payload.cards ?? []).map((entry) => [entry.paperId, entry.card]),
-    ) as Record<string, SummaryCardData>;
-    setSummaryCardsByPaperId(index);
-    return index;
+    setIdeation(next);
+    return next;
   }, [runId]);
 
-  const runSummaryCards = async () => {
-    if (!runId || runningSummaryCards) return;
-    setRunningSummaryCards(true);
-    setSummaryStatus("");
+  const runIdeate = async () => {
+    if (!runId || runningIdeation) return;
+    setRunningIdeation(true);
     setError("");
     try {
-      const response = await fetch("/api/research/summary-card", {
+      const response = await fetch("/api/research/ideate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ runId, query: activeQuery || query }),
+        body: JSON.stringify({ runId }),
       });
-      const data = (await response.json()) as { error?: string; processed?: number };
-      if (!response.ok) throw new Error(data.error ?? "Failed to run summary cards");
-      setSummaryStatus(`Summary cards complete (${data.processed ?? 0} papers).`);
-      await loadSummaryCards();
+      const data = (await response.json()) as IdeationData & { error?: string };
+      if (!response.ok) throw new Error(data.error ?? "Failed to generate ideation");
+      setIdeation({
+        exploredDirections: data.exploredDirections ?? [],
+        futureDirections: data.futureDirections ?? [],
+      });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unexpected error");
+      setError(err instanceof Error ? err.message : "Failed to generate ideation");
     } finally {
-      setRunningSummaryCards(false);
+      setRunningIdeation(false);
+    }
+  };
+
+  const openIdeationModal = async () => {
+    if (!runId || phase !== "citations") return;
+    setIdeationOpen(true);
+    setError("");
+    try {
+      await loadIdeation();
+    } catch (err) {
+      setIdeation({ exploredDirections: [], futureDirections: [] });
+      setError(err instanceof Error ? err.message : "Failed to load ideation");
     }
   };
 
@@ -753,14 +894,25 @@ export default function Home() {
         setGraph(data.graph);
         setPhase("citations");
         setSummaryStatus("");
+        setStatusText("Complete");
+        setEdgeViewMode("citation");
+        void loadSummaryCards(nextRunId);
+        void loadSemanticEdges(nextRunId);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load run");
       }
     },
-    [],
+  [loadSemanticEdges, loadSummaryCards],
   );
 
   const showEmptyState = !loading && paperNodeCount === 0;
+  const hasSemanticEdges = semanticEdges.length > 0;
+
+  useEffect(() => {
+    if (!hasSemanticEdges && edgeViewMode === "semantic") {
+      setEdgeViewMode("citation");
+    }
+  }, [edgeViewMode, hasSemanticEdges]);
 
   return (
     <main className="relative h-screen w-screen overflow-hidden bg-slate-950 text-slate-100">
@@ -820,11 +972,13 @@ export default function Home() {
         phase={phase}
         loading={loading}
         nodeCount={paperNodeCount}
-        edgeCount={graph.edges.length}
+        edgeCount={activeEdges.length}
         subtopicCount={subtopics.length}
+        statusText={statusText}
+        statusBusy={loading || runningSummaryCards || runningSemanticEdges}
       />
 
-      <div className="pointer-events-auto absolute left-4 top-24 z-30">
+      <div className="pointer-events-auto absolute left-4 top-4 z-30">
         <button
           type="button"
           onClick={() => {
@@ -877,7 +1031,23 @@ export default function Home() {
         subtopics={subtopics}
         hoveredColor={hoveredCluster}
         onHover={setHoveredCluster}
+        collapsed={subtopicsCollapsed}
+        onToggleCollapsed={() => setSubtopicsCollapsed((v) => !v)}
+        showSemanticLegend={edgeViewMode === "semantic"}
       />
+
+      {!showEmptyState && (
+        <div className="pointer-events-auto absolute bottom-6 left-15 z-30">
+          <button
+            type="button"
+            onClick={() => void openIdeationModal()}
+            disabled={loading || !runId || phase !== "citations"}
+            className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-700/80 bg-slate-900/95 px-3 text-xs font-medium text-indigo-200 shadow-2xl backdrop-blur transition hover:border-indigo-400/60 hover:text-indigo-100 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Ideate
+          </button>
+        </div>
+      )}
 
       <DetailPanel
         paper={selected}
@@ -974,22 +1144,12 @@ export default function Home() {
               "Map"
             )}
           </button>
-          <button
-            type="button"
-            onClick={() => void runSummaryCards()}
-            disabled={loading || runningSummaryCards || !runId || phase !== "citations"}
-            className="inline-flex h-11 items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 text-xs font-medium text-slate-700 transition hover:border-slate-500 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {runningSummaryCards ? "Running..." : "Summary Card"}
-          </button>
         </form>
 
         <div className="pointer-events-none mx-auto mt-2 flex max-w-3xl items-center justify-between gap-3 px-2 text-[11px] text-slate-500">
           <span className="truncate">
             {error ? (
               <span className="text-rose-400">{error}</span>
-            ) : runId ? (
-              <span className="font-mono text-slate-600">{runId}</span>
             ) : (
               <span>Press Enter or hit Map to build the graph.</span>
             )}
@@ -1009,6 +1169,139 @@ export default function Home() {
           )}
         </div>
       </section>
+
+      {!showEmptyState && (
+        <div className="pointer-events-auto absolute bottom-6 right-6 z-30 flex items-end gap-2">
+        <div className="flex flex-col items-start gap-1">
+          {runId && paperNodeCount > 0 && (runningSemanticEdges || hasSemanticEdges) && (
+            <div
+              className={`px-1 text-[9px] font-normal ${
+                runningSemanticEdges ? "animate-pulse text-indigo-300" : "text-slate-400"
+              }`}
+            >
+              {runningSemanticEdges ? "Creating custom edges" : "View custom edges"}
+            </div>
+          )}
+          <div className="rounded-xl border border-slate-700/80 bg-slate-900/95 p-1.5 shadow-2xl backdrop-blur">
+          <div className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+            View
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setEdgeViewMode("citation")}
+              className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
+                edgeViewMode === "citation"
+                  ? "bg-slate-100 text-slate-900"
+                  : "text-slate-300 hover:bg-slate-800"
+              }`}
+            >
+              Citation
+            </button>
+            <button
+              type="button"
+              onClick={() => hasSemanticEdges && setEdgeViewMode("semantic")}
+              disabled={!hasSemanticEdges}
+              className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
+                edgeViewMode === "semantic"
+                  ? "bg-indigo-400 text-slate-950"
+                  : "text-slate-300 hover:bg-slate-800"
+              } disabled:cursor-not-allowed disabled:opacity-40`}
+            >
+              Semantic
+            </button>
+          </div>
+        </div>
+        </div>
+        </div>
+      )}
+
+      {ideationOpen && (
+        <div className="pointer-events-auto absolute inset-0 z-40 flex items-center justify-center bg-slate-950/70 p-6">
+          <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl">
+            <div className="mb-4 flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-100">Ideation</h2>
+                <p className="text-xs text-slate-400">
+                  Analyze all node summaries to synthesize the most explored research directions and the highest-potential future directions to build on.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIdeationOpen(false)}
+                className="rounded-md p-1 text-slate-400 transition hover:bg-slate-800 hover:text-slate-200"
+                aria-label="Close ideation modal"
+              >
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                >
+                  <path d="M18 6 6 18M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="mb-5 flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => void runIdeate()}
+                disabled={runningIdeation}
+                className="inline-flex h-10 items-center gap-2 rounded-lg bg-indigo-500 px-4 text-sm font-medium text-white transition hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {runningIdeation
+                  ? "Running..."
+                  : ideation &&
+                      (ideation.exploredDirections.length > 0 ||
+                        ideation.futureDirections.length > 0)
+                    ? "Rerun"
+                    : "Synthesize"}
+              </button>
+              <span className="text-xs text-slate-400">
+                {ideation &&
+                (ideation.exploredDirections.length > 0 ||
+                  ideation.futureDirections.length > 0)
+                  ? "Showing latest generated ideation."
+                  : "No ideation generated yet for this run."}
+              </span>
+            </div>
+
+            <section className="mb-5">
+              <h3 className="mb-2 text-sm font-semibold text-slate-200">
+                Top explored directions
+              </h3>
+              <ol className="list-decimal space-y-2 pl-5 text-sm text-slate-300">
+                {ideation?.exploredDirections?.length ? (
+                  ideation.exploredDirections.map((item, idx) => (
+                    <li key={`explored-${idx}`}>{item}</li>
+                  ))
+                ) : (
+                  <li className="list-none text-slate-500">Run Synthesize to generate directions.</li>
+                )}
+              </ol>
+            </section>
+
+            <section>
+              <h3 className="mb-2 text-sm font-semibold text-slate-200">
+                Most promising future directions
+              </h3>
+              <ol className="list-decimal space-y-2 pl-5 text-sm text-slate-300">
+                {ideation?.futureDirections?.length ? (
+                  ideation.futureDirections.map((item, idx) => (
+                    <li key={`future-${idx}`}>{item}</li>
+                  ))
+                ) : (
+                  <li className="list-none text-slate-500">No future directions generated yet.</li>
+                )}
+              </ol>
+            </section>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

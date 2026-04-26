@@ -1,16 +1,10 @@
 import { NextResponse } from "next/server";
-import { buildSummaryCard } from "@/lib/agents";
-import type { GraphNodeData } from "@/lib/papers";
+import type { Edge } from "@xyflow/react";
 import { readRunData, writeRunData } from "@/lib/storage";
-import type { Edge, Node } from "@xyflow/react";
-
-type StoredGraph = {
-  nodes: Array<Node<GraphNodeData>>;
-};
 
 type SummaryCardFile = Array<{
   paperId: string;
-  card: Awaited<ReturnType<typeof buildSummaryCard>>;
+  card?: { summary?: { paragraph?: string } };
 }>;
 
 type SemanticEdgeRecord = {
@@ -26,14 +20,14 @@ const EDGE_STYLES: Record<SemanticEdgeRecord["relationType"], { stroke: string; 
   "Contrasting Approach": { stroke: "#f97316", dash: "2 2" },
 };
 
-async function generateSemanticEdges(cards: SummaryCardFile) {
+async function generateSemanticEdgesFromCards(cards: SummaryCardFile) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error("Missing OPENAI_API_KEY in environment.");
 
   const items = cards
     .map((c) => ({
       paperId: c.paperId,
-      paragraph: c.card.summary?.paragraph?.trim() ?? "",
+      paragraph: c.card?.summary?.paragraph?.trim() ?? "",
     }))
     .filter((x) => x.paragraph);
 
@@ -47,7 +41,6 @@ async function generateSemanticEdges(cards: SummaryCardFile) {
     },
     body: JSON.stringify({
       model: "gpt-5-mini",
-      temperature: 0.2,
       response_format: { type: "json_object" },
       messages: [
         {
@@ -131,74 +124,39 @@ async function generateSemanticEdges(cards: SummaryCardFile) {
     }));
 }
 
-function hasPaperId(
-  paper: unknown,
-): paper is GraphNodeData["paper"] & { id: string } {
-  return (
-    typeof paper === "object" &&
-    paper !== null &&
-    "id" in paper &&
-    typeof (paper as { id?: unknown }).id === "string" &&
-    (paper as { id: string }).id.trim().length > 0
-  );
-}
-
-export async function POST(request: Request) {
-  try {
-    const { runId, query } = (await request.json()) as { runId?: string; query?: string };
-    if (!runId) return NextResponse.json({ error: "runId is required" }, { status: 400 });
-
-    const graph = await readRunData<StoredGraph>(runId, "graph.json");
-    const byId = new Map<string, GraphNodeData["paper"]>();
-    for (const node of graph.nodes) {
-      const paper = node?.data?.paper;
-      if (!hasPaperId(paper)) continue;
-      byId.set(paper.id, paper);
-    }
-    const papers = [...byId.values()];
-
-    const cards = await Promise.all(
-      papers.map(async (paper) => ({
-        paperId: paper.id,
-        card: await buildSummaryCard({ paper, query, runId }),
-      })),
-    );
-
-    await writeRunData(runId, "summary-cards.json", cards);
-    let semanticEdges: Edge[] = [];
-    try {
-      semanticEdges = await generateSemanticEdges(cards);
-      await writeRunData(runId, "semantic-edges.json", semanticEdges);
-    } catch {
-      semanticEdges = [];
-    }
-
-    return NextResponse.json({
-      runId,
-      processed: cards.length,
-      file: "summary-cards.json",
-      semanticEdges: semanticEdges.length,
-    });
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "summary-card run failed" },
-      { status: 500 },
-    );
-  }
-}
-
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const runId = url.searchParams.get("runId")?.trim();
   if (!runId) return NextResponse.json({ error: "runId is required" }, { status: 400 });
   try {
-    const cards = await readRunData<SummaryCardFile>(runId, "summary-cards.json");
-    return NextResponse.json({ runId, cards, count: cards.length });
+    const edges = await readRunData<Edge[]>(runId, "semantic-edges.json");
+    return NextResponse.json({ runId, edges, count: edges.length });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "summary-cards not found";
+    const message = error instanceof Error ? error.message : "semantic-edges not found";
     if (message.includes("ENOENT") || message.includes("File not found")) {
-      return NextResponse.json({ runId, cards: [], count: 0 });
+      return NextResponse.json({ runId, edges: [], count: 0 });
     }
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const { runId } = (await request.json()) as { runId?: string };
+    if (!runId) return NextResponse.json({ error: "runId is required" }, { status: 400 });
+    const cards = await readRunData<SummaryCardFile>(runId, "summary-cards.json");
+    if (cards.length === 0) {
+      return NextResponse.json(
+        { error: "summary-cards.json is empty; run Summary Card first." },
+        { status: 400 },
+      );
+    }
+    const edges = await generateSemanticEdgesFromCards(cards);
+    await writeRunData(runId, "semantic-edges.json", edges);
+    return NextResponse.json({ runId, edges, count: edges.length });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to generate semantic edges";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
