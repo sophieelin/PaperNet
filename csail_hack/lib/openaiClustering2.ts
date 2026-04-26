@@ -1,6 +1,5 @@
 import { ORPHAN_COLOR, SEED_COLORS, type ClusterInfo } from "@/lib/graph";
 import type { ResearchPaper, Subtopic } from "@/lib/papers";
-import OpenAI from "openai";
 
 type Vector = number[];
 
@@ -90,7 +89,7 @@ function cosineSimilarity(a: Vector, b: Vector): number {
 }
 
 /**
- * --- k-means ---
+ * --- k-means (seed-initialized centroids) ---
  */
 function kMeansCosine(
   vectors: Vector[],
@@ -102,11 +101,15 @@ function kMeansCosine(
 
   const assignments = new Array(vectors.length).fill(0);
 
-  const centroids: Vector[] = seedVectors.slice(0, k).map(v => v.slice());
+  //CENTROIDS COME FROM SEED PAPERS
+  const centroids: Vector[] = seedVectors
+    .slice(0, k)
+    .map(v => v.slice());
 
   for (let iter = 0; iter < maxIterations; iter++) {
     let changed = false;
 
+    // assign
     for (let i = 0; i < vectors.length; i++) {
       let best = 0;
       let bestScore = -Infinity;
@@ -125,6 +128,7 @@ function kMeansCosine(
       }
     }
 
+    // recompute centroids
     const sums: Vector[] = Array.from({ length: k }, () =>
       new Array(vectors[0].length).fill(0)
     );
@@ -133,6 +137,7 @@ function kMeansCosine(
     for (let i = 0; i < vectors.length; i++) {
       const c = assignments[i];
       counts[c]++;
+
       for (let d = 0; d < vectors[i].length; d++) {
         sums[c][d] += vectors[i][d];
       }
@@ -140,6 +145,7 @@ function kMeansCosine(
 
     for (let c = 0; c < k; c++) {
       if (!counts[c]) continue;
+
       const mean = sums[c].map(v => v / counts[c]);
       centroids[c] = normalize(mean);
     }
@@ -151,47 +157,25 @@ function kMeansCosine(
 }
 
 /**
- * --- LLM CLUSTER LABELING (NEW) ---
+ * --- label clusters ---
  */
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+function labelFromClusterTitles(titles: string[]): string {
+  const counts = new Map<string, number>();
 
-async function labelClustersWithOpenAI(
-  clusters: { id: number; titles: string[] }[]
-): Promise<Record<number, string>> {
-
-  const prompt = `
-You label research paper clusters.
-
-Return JSON only in this format:
-{
-  "0": "Cluster Name",
-  "1": "Cluster Name"
-}
-
-Rules:
-- 2–6 words per label
-- no punctuation
-- concise academic topic names
-
-Clusters:
-${clusters.map(c =>
-  `Cluster ${c.id}:\n${c.titles.slice(0, 10).map(t => `- ${t}`).join("\n")}`
-).join("\n\n")}
-`;
-
-  const res = await openai.chat.completions.create({
-    model: "gpt-4.1-mini",
-    temperature: 0.3,
-    messages: [{ role: "user", content: prompt }],
-  });
-
-  const text = res.choices[0]?.message?.content ?? "{}";
-
-  try {
-    return JSON.parse(text);
-  } catch {
-    return {};
+  for (const t of titles) {
+    const tokens = new Set(tokenizeTitle(t));
+    for (const tok of tokens) {
+      counts.set(tok, (counts.get(tok) ?? 0) + 1);
+    }
   }
+
+  const top = [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([t]) => t);
+
+  if (!top.length) return "Related Work";
+  return top.map(w => w[0].toUpperCase() + w.slice(1)).join(" ");
 }
 
 /**
@@ -211,8 +195,13 @@ export async function clusterPapersWithTitleVectors(
 
   const vectorStore = new TitleVectorStore(allPapers);
 
-  const vectors = allPapers.map(p => vectorStore.getVector(p.id));
-  const seedVectors = seeds.map(p => vectorStore.getVector(p.id));
+  const vectors = allPapers.map(p =>
+    vectorStore.getVector(p.id)
+  );
+
+  const seedVectors = seeds.map(p =>
+    vectorStore.getVector(p.id)
+  );
 
   const assignments = kMeansCosine(vectors, seedVectors, k);
 
@@ -228,14 +217,6 @@ export async function clusterPapersWithTitleVectors(
     (a, b) => b[1].length - a[1].length
   );
 
-  // build LLM input
-  const clusterInput = sortedClusters.map(([id, papers]) => ({
-    id,
-    titles: papers.map(p => p.title ?? ""),
-  }));
-
-  const labels = await labelClustersWithOpenAI(clusterInput);
-
   const seedSet = new Set(seeds.map(s => s.id));
 
   const colorBySeed = new Map<string, string>();
@@ -249,7 +230,9 @@ export async function clusterPapersWithTitleVectors(
     const [_, papers] = sortedClusters[i];
 
     const color = SEED_COLORS[i % SEED_COLORS.length];
-    const label = labels[i] ?? "Related Work";
+    const label = labelFromClusterTitles(
+      papers.map(p => p.title ?? "")
+    );
 
     for (const p of papers) {
       if (seedSet.has(p.id)) {
