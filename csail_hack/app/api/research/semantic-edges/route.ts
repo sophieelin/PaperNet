@@ -14,10 +14,10 @@ type SemanticEdgeRecord = {
   reason?: string;
 };
 
-const EDGE_STYLES: Record<SemanticEdgeRecord["relationType"], { stroke: string; dash?: string }> = {
+const EDGE_STYLES: Record<SemanticEdgeRecord["relationType"], { stroke: string }> = {
   "Builds On": { stroke: "#22c55e" },
-  "Similar Approach": { stroke: "#60a5fa", dash: "4 2" },
-  "Contrasting Approach": { stroke: "#f97316", dash: "2 2" },
+  "Similar Approach": { stroke: "#60a5fa" },
+  "Contrasting Approach": { stroke: "#f97316" },
 };
 
 async function generateSemanticEdgesFromCards(cards: SummaryCardFile) {
@@ -106,13 +106,13 @@ async function generateSemanticEdgesFromCards(cards: SummaryCardFile) {
       id: `semantic:${idx + 1}:${e.sourceId}->${e.targetId}`,
       source: e.sourceId,
       target: e.targetId,
-      type: "default" as const,
+      type: "simplebezier" as const,
       animated: false,
       style: {
         stroke: EDGE_STYLES[e.relationType].stroke,
         strokeWidth: 1.6,
         opacity: 0.85,
-        strokeDasharray: EDGE_STYLES[e.relationType].dash,
+        strokeLinecap: "round" as const,
       },
       markerEnd: {
         type: "arrowclosed" as const,

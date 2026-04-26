@@ -812,12 +812,13 @@ export function buildCitationGraph(
         id: `e:${selection.parentId}->${child.id}`,
         source: selection.parentId,
         target: child.id,
-        type: "default" as const,
+        type: "simplebezier" as const,
         animated: false,
         style: {
           stroke: sameCluster ? color : NEUTRAL_EDGE,
           strokeWidth: sameCluster ? 1.6 : 0.8,
-          opacity: sameCluster ? 0.85 : 0.18,
+          opacity: sameCluster ? 0.9 : 0.22,
+          strokeLinecap: "round" as const,
         },
         markerEnd: {
           type: "arrowclosed" as const,

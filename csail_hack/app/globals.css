@@ -1,21 +1,77 @@
 @import "../node_modules/tailwindcss/index.css";
 
+/*
+ * Editorial / archival dark palette.
+ *
+ * The previous theme leaned on Tailwind's slate-950 + slate-700/80 + amber +
+ * emerald + sky + indigo, which reads as generic "AI dark mode". This swaps
+ * the foundation for a single warm near-black, cream paper-toned text, and
+ * one sand-coloured accent — closer to a research archive than a startup
+ * demo. Cluster colours (driven by data) remain vivid against this neutral
+ * canvas.
+ */
 :root {
-  --background: #0a0a0a;
-  --foreground: #ededed;
+  --bg: #0c0d10;
+  --bg-elev: #14161b;
+  --bg-elev-2: #1c1f25;
+  --line: rgba(255, 255, 255, 0.07);
+  --line-strong: rgba(255, 255, 255, 0.14);
+  --text: #e9e6df;
+  --text-muted: #9b988e;
+  --text-faint: #6c6962;
+  --accent: #d4a574;
+  --accent-soft: rgba(212, 165, 116, 0.16);
+  --danger: #d97a6c;
+
+  --font-serif-stack: var(--font-serif), "Playfair Display", Georgia,
+    "Times New Roman", Times, serif;
+  --font-sans-stack: var(--font-geist-sans), ui-sans-serif, system-ui,
+    -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono-stack: var(--font-geist-mono), ui-monospace, SFMono-Regular,
+    "SF Mono", Menlo, Consolas, monospace;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-background: var(--bg);
+  --color-foreground: var(--text);
+  --color-surface: var(--bg-elev);
+  --color-line: var(--line);
+  --color-text: var(--text);
+  --color-text-muted: var(--text-muted);
+  --color-text-faint: var(--text-faint);
+  --color-accent: var(--accent);
+  --font-sans: var(--font-sans-stack);
+  --font-mono: var(--font-mono-stack);
+  --font-serif: var(--font-serif-stack);
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--text);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans-stack);
+  font-feature-settings: "ss01", "cv11";
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Playfair for headlines, paper titles, and editorial chrome. */
+.font-serif {
+  font-family: var(--font-serif-stack);
+  font-feature-settings: "kern" 1, "liga" 1;
+}
+
+/* Tracked uppercase labels (same stack as body for consistency). */
+.label-eyebrow {
+  font-family: var(--font-sans-stack);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-faint);
 }
 
 /* React Flow nodes share a single round hit area; give the opacity
@@ -23,6 +79,11 @@ body {
 .react-flow__node,
 .react-flow__edge {
   transition: opacity 160ms ease-out;
+}
+
+/* Solid connector paths (no dashed / animated dot layer). */
+.react-flow__edge .react-flow__edge-path {
+  stroke-dasharray: none;
 }
 
 /* Dim arrow markers along with the edges they belong to (React Flow
@@ -33,22 +94,142 @@ body {
   opacity: inherit;
 }
 
-/* Dark variant for React Flow's built-in zoom/fit controls. */
+/* Restyle React Flow's built-in zoom/fit controls to match the archival
+   palette: hairline border, no glassmorphism, single accent on hover. */
 .react-flow__controls {
-  border: 1px solid rgb(51 65 85 / 0.8);
-  background: rgb(15 23 42 / 0.85);
-  backdrop-filter: blur(8px);
-  border-radius: 0.75rem;
+  border: 1px solid var(--line);
+  background: var(--bg-elev);
+  backdrop-filter: none;
+  border-radius: 6px;
+  box-shadow: none;
   overflow: hidden;
 }
 .react-flow__controls-button {
   background: transparent !important;
-  color: #cbd5e1 !important;
-  border-bottom: 1px solid rgb(51 65 85 / 0.6) !important;
+  color: var(--text-muted) !important;
+  border-bottom: 1px solid var(--line) !important;
+  width: 28px !important;
+  height: 28px !important;
+}
+.react-flow__controls-button:last-child {
+  border-bottom: 0 !important;
 }
 .react-flow__controls-button:hover {
-  background: rgb(30 41 59 / 0.7) !important;
+  background: var(--bg-elev-2) !important;
+  color: var(--text) !important;
 }
 .react-flow__controls-button svg {
   fill: currentColor !important;
+  max-width: 12px;
+  max-height: 12px;
+}
+
+/* Subtle scrollbar inside dark panels. */
+.scroll-fine::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.scroll-fine::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scroll-fine::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 8px;
+}
+.scroll-fine::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+/* Rounded “search bar” shell — inset highlight + soft drop shadow. */
+.search-shell {
+  border-radius: 9999px;
+  border: 1px solid var(--line);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0%, transparent 45%),
+    var(--bg-elev);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.06) inset,
+    0 14px 44px -20px rgba(0, 0, 0, 0.75);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.search-shell:focus-within {
+  border-color: rgba(212, 165, 116, 0.45);
+  box-shadow:
+    0 0 0 1px rgba(212, 165, 116, 0.14),
+    0 14px 44px -20px rgba(0, 0, 0, 0.75);
+}
+
+/* Suggested-topic chips — visible “bubble” (pill) around each string. */
+.topic-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-family: var(--font-serif-stack);
+  font-weight: 500;
+  font-feature-settings: "kern" 1, "liga" 1;
+  border-radius: 9999px;
+  border: 1px solid var(--line-strong);
+  background: var(--bg-elev-2);
+  color: var(--text);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.08) inset,
+    0 8px 28px -10px rgba(0, 0, 0, 0.7),
+    0 0 0 1px rgba(0, 0, 0, 0.35);
+  transition:
+    transform 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+    border-color 0.2s ease,
+    color 0.2s ease,
+    box-shadow 0.2s ease,
+    background 0.2s ease;
+}
+.topic-chip::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px rgba(212, 165, 116, 0);
+  pointer-events: none;
+  transition: box-shadow 0.2s ease;
+}
+.topic-chip:hover {
+  border-color: rgba(212, 165, 116, 0.42);
+  color: #f5f2eb;
+  background: var(--bg-elev);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.1) inset,
+    0 12px 40px -12px rgba(0, 0, 0, 0.65),
+    0 0 24px -8px rgba(212, 165, 116, 0.18);
+  transform: translateY(-2px) scale(1.01);
+}
+.topic-chip:hover::after {
+  box-shadow: inset 0 0 0 1px rgba(212, 165, 116, 0.15);
+}
+.topic-chip:active {
+  transform: translateY(0) scale(0.99);
+  transition-duration: 0.12s;
+}
+.topic-chip:focus {
+  outline: none;
+}
+.topic-chip:focus-visible {
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.1) inset,
+    0 8px 32px -8px rgba(0, 0, 0, 0.55),
+    0 0 0 2px var(--bg),
+    0 0 0 4px rgba(212, 165, 116, 0.55);
+}
+.topic-chip:focus-visible::after {
+  box-shadow: inset 0 0 0 1px rgba(212, 165, 116, 0.25);
+}
+
+/* “Suggested topics” line — Playfair, aligned with the hero. */
+.topic-bubbles-title {
+  font-family: var(--font-serif-stack);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  font-weight: 500;
 }

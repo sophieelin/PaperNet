@@ -10,7 +10,7 @@ type StoredGraph = {
 
 type SummaryCardFile = Array<{
   paperId: string;
-  card: Awaited<ReturnType<typeof buildSummaryCard>>;
+  card: Awaited<ReturnType<typeof buildSummaryCard>> & { bibtex?: string };
 }>;
 
 type SemanticEdgeRecord = {
@@ -27,6 +27,33 @@ const EDGE_STYLES: Record<SemanticEdgeRecord["relationType"], { stroke: string; 
   "Similar Approach": { stroke: "#60a5fa", dash: "4 2" },
   "Contrasting Approach": { stroke: "#f97316", dash: "2 2" },
 };
+
+function escapeBibtex(value: string): string {
+  return value.replace(/[{}]/g, "").replace(/\s+/g, " ").trim();
+}
+
+function buildBibtex(paper: GraphNodeData["paper"]): string {
+  const year = String(paper.year ?? "").trim();
+  const authorNames = paper.authors.filter(Boolean).map((name) => escapeBibtex(name));
+  const author = authorNames.length > 0 ? authorNames.join(" and ") : "Unknown";
+  const title = escapeBibtex(paper.title || "Untitled");
+  const venue =
+    paper.source === "arxiv" ? "arXiv" : paper.source === "acm" ? "ACM Digital Library" : "Semantic Scholar";
+  const arxivId = paper.arxivId?.trim();
+  const url = paper.url?.trim();
+  const keyStem = authorNames[0]?.split(" ").slice(-1)[0]?.toLowerCase() || "paper";
+  const key = `${keyStem}${year || "noyear"}`;
+  const fields = [
+    `  title={${title}}`,
+    `  author={${author}}`,
+    `  year={${year || "n.d."}}`,
+    `  journal={${venue}}`,
+    arxivId ? `  eprint={${arxivId}}` : "",
+    arxivId ? "  archivePrefix={arXiv}" : "",
+    url ? `  url={${url}}` : "",
+  ].filter(Boolean);
+  return `@article{${key},\n${fields.join(",\n")}\n}`;
+}
 
 async function generateSemanticEdges(cards: SummaryCardFile) {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -153,7 +180,10 @@ async function buildCardsInProviderOrder(
     const results = await Promise.all(
       batch.map(async (paper) => ({
         paperId: paper.id,
-        card: await buildSummaryCard({ paper, query, runId }),
+        card: {
+          ...(await buildSummaryCard({ paper, query, runId })),
+          bibtex: buildBibtex(paper),
+        },
       })),
     );
     cards.push(...results);

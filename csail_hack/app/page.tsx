@@ -37,11 +37,23 @@ type GraphPayload = {
   edges: Edge[];
   subtopics?: Subtopic[];
 };
+
+/** Total papers in this subtopic (seeds + citations) from metadata + graph nodes. */
+function subtopicPaperTotal(topic: Subtopic, nodes: Node<AnyNodeData>[]): number {
+  const seeds = topic.seedIds.length;
+  const citations = nodes.filter((n) => {
+    if (n.type !== "paper") return false;
+    const d = n.data as GraphNodeData;
+    return d.kind === "citation" && d.color === topic.color;
+  }).length;
+  return seeds + citations;
+}
 type EdgeViewMode = "citation" | "semantic";
 type SummaryCardData = {
   summary?: { oneLine?: string; paragraph?: string };
   methodology?: { methodology?: string; results?: string; futureWork?: string };
   figures?: { figures?: Array<{ imageUrl: string; caption?: string; description?: string }> };
+  bibtex?: string;
 };
 type IdeationData = {
   exploredDirections: string[];
@@ -105,15 +117,15 @@ function PaperNode({ data, selected }: NodeProps<PaperNodeType>) {
 
   const background = isSeed
     ? `radial-gradient(circle at 30% 22%, ${hexToRgba(accent, 0.62)} 0%, ${hexToRgba(accent, 0.28)} 55%, ${hexToRgba(accent, 0.1)} 100%)`
-    : `radial-gradient(circle at 30% 22%, ${hexToRgba(accent, 0.28)} 0%, ${hexToRgba(accent, 0.1)} 55%, rgba(13,18,32,0.92) 100%)`;
+    : `radial-gradient(circle at 30% 22%, ${hexToRgba(accent, 0.3)} 0%, ${hexToRgba(accent, 0.12)} 52%, rgba(10,11,14,0.96) 100%)`;
 
   const borderWidth = isSeed ? 2 : 1.4;
   const borderColor = hexToRgba(accent, isSeed ? 0.95 : 0.75);
 
   const baseShadow = isSeed
-    ? `0 0 0 1px ${hexToRgba(accent, 0.3)}, 0 12px 28px -12px ${hexToRgba(accent, 0.65)}`
-    : `0 0 0 1px ${hexToRgba(accent, 0.32)}, 0 6px 16px -10px rgba(0,0,0,0.7)`;
-  const selectedShadow = `0 0 0 2px ${hexToRgba(accent, 1)}, 0 0 28px -2px ${hexToRgba(accent, 0.85)}`;
+    ? `0 0 0 1px ${hexToRgba(accent, 0.32)}, 0 1px 0 ${hexToRgba("#ffffff", 0.08)} inset, 0 14px 32px -14px ${hexToRgba(accent, 0.7)}`
+    : `0 0 0 1px ${hexToRgba(accent, 0.28)}, 0 1px 0 ${hexToRgba("#ffffff", 0.04)} inset, 0 8px 20px -12px rgba(0,0,0,0.75)`;
+  const selectedShadow = `0 0 0 2px ${hexToRgba(accent, 1)}, 0 0 0 1px ${hexToRgba("#fff", 0.12)} inset, 0 0 32px -4px ${hexToRgba(accent, 0.85)}`;
 
   const titleClass = isSeed
     ? "text-[11px] font-semibold leading-[1.15] line-clamp-3"
@@ -136,7 +148,8 @@ function PaperNode({ data, selected }: NodeProps<PaperNodeType>) {
         type="target"
         position={Position.Top}
         isConnectable={false}
-        className="!pointer-events-none !h-1.5 !w-1.5 !border-0 !bg-slate-500/60"
+        className="!pointer-events-none !h-1.5 !w-1.5 !border-0"
+        style={{ background: "rgba(220, 215, 200, 0.35)" }}
       />
 
       {/* Inner highlight ring — only on seeds, gives the disc a "lit"
@@ -154,14 +167,14 @@ function PaperNode({ data, selected }: NodeProps<PaperNodeType>) {
 
       <div
         className="pointer-events-none relative z-[1] flex h-full w-full flex-col items-center justify-center gap-1.5 px-2.5"
-        style={{ color: isSeed ? "#f8fafc" : "#e2e8f0" }}
+        style={{ color: isSeed ? "#f4f1ea" : "#dfe6eb" }}
       >
         <div
           className={`${titleClass} break-words tracking-tight`}
           style={{
             textShadow: isSeed
-              ? "0 1px 3px rgba(0,0,0,0.55)"
-              : "0 1px 2px rgba(0,0,0,0.5)",
+              ? "0 1px 3px rgba(0,0,0,0.5)"
+              : "0 1px 2px rgba(0,0,0,0.45)",
           }}
         >
           {data.label}
@@ -173,9 +186,9 @@ function PaperNode({ data, selected }: NodeProps<PaperNodeType>) {
           <div
             className="rounded-full px-2 py-[1px] text-[9px] font-bold tracking-[0.12em]"
             style={{
-              background: hexToRgba("#0f172a", 0.55),
+              background: "rgba(8, 9, 11, 0.58)",
               color: hexToRgba(accent, 0.95),
-              border: `1px solid ${hexToRgba(accent, 0.4)}`,
+              border: `1px solid ${hexToRgba(accent, 0.42)}`,
             }}
           >
             {data.subtitle}
@@ -187,7 +200,8 @@ function PaperNode({ data, selected }: NodeProps<PaperNodeType>) {
         type="source"
         position={Position.Bottom}
         isConnectable={false}
-        className="!pointer-events-none !h-1.5 !w-1.5 !border-0 !bg-slate-500/60"
+        className="!pointer-events-none !h-1.5 !w-1.5 !border-0"
+        style={{ background: "rgba(220, 215, 200, 0.35)" }}
       />
     </div>
   );
@@ -207,17 +221,18 @@ function HaloNode({ data }: NodeProps<HaloNodeType>) {
       <div
         className="absolute inset-0 rounded-full"
         style={{
-          background: `radial-gradient(circle at 50% 45%, ${hexToRgba(color, 0.16)}, ${hexToRgba(color, 0.06)} 70%, ${hexToRgba(color, 0)} 100%)`,
-          border: `1px dashed ${hexToRgba(color, 0.35)}`,
-          boxShadow: `inset 0 0 60px -10px ${hexToRgba(color, 0.18)}`,
+          background: `radial-gradient(circle at 50% 42%, ${hexToRgba(color, 0.18)}, ${hexToRgba(color, 0.07)} 68%, ${hexToRgba(color, 0)} 100%)`,
+          border: `1px dashed ${hexToRgba(color, 0.32)}`,
+          boxShadow: `inset 0 0 64px -12px ${hexToRgba(color, 0.2)}`,
         }}
       />
       <div
-        className="absolute left-1/2 top-3 -translate-x-1/2 whitespace-nowrap rounded-full px-3 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em]"
+        className="absolute left-1/2 top-3 -translate-x-1/2 whitespace-nowrap rounded-full px-3.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em]"
         style={{
-          background: hexToRgba(color, 0.22),
-          color: hexToRgba(color, 0.95),
-          border: `1px solid ${hexToRgba(color, 0.35)}`,
+          background: hexToRgba(color, 0.2),
+          color: hexToRgba(color, 0.98),
+          border: `1px solid ${hexToRgba(color, 0.38)}`,
+          boxShadow: `0 1px 0 ${hexToRgba("#fff", 0.06)} inset`,
         }}
       >
         {label}
@@ -235,6 +250,7 @@ function DetailPanel({
   card: SummaryCardData | null;
   onClose: () => void;
 }) {
+  const [copiedBibtex, setCopiedBibtex] = useState(false);
   if (!paper) return null;
   const title = card?.summary?.oneLine?.trim() || paper.title;
   const paragraph = card?.summary?.paragraph?.trim() || paper.summary;
@@ -242,15 +258,32 @@ function DetailPanel({
   const results = card?.methodology?.results?.trim() ?? "";
   const futureWork = card?.methodology?.futureWork?.trim() ?? "";
   const figures = card?.figures?.figures ?? [];
+  const bibtex = card?.bibtex?.trim() ?? "";
   return (
-    <aside className="pointer-events-auto absolute right-0 top-0 z-[70] flex h-full w-[50vw] min-w-[520px] max-w-[980px] flex-col gap-3 overflow-y-auto border-l border-slate-700/80 bg-slate-900/96 p-6 text-slate-100 shadow-2xl backdrop-blur">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+    <aside
+      className="scroll-fine pointer-events-auto absolute right-0 top-0 z-[70] flex h-full w-[44vw] min-w-[460px] max-w-[820px] flex-col overflow-y-auto"
+      style={{
+        background: "var(--bg-elev)",
+        borderLeft: "1px solid var(--line)",
+      }}
+    >
+      {/* Sticky header so the title stays put as the reader scrolls. */}
+      <div
+        className="sticky top-0 z-10 flex items-start justify-between gap-3 px-7 pb-4 pt-6"
+        style={{
+          background: "var(--bg-elev)",
+          borderBottom: "1px solid var(--line)",
+        }}
+      >
+        <div className="min-w-0 flex-1">
+          <div className="label-eyebrow">
             {sourceLabel(paper)}
             {paper.year ? ` · ${paper.year}` : ""}
           </div>
-          <h2 className="mt-1 text-base font-semibold leading-snug text-slate-50">
+          <h2
+            className="font-serif mt-2 text-[22px] font-semibold leading-[1.2] tracking-tight"
+            style={{ color: "var(--text)" }}
+          >
             {title}
           </h2>
         </div>
@@ -258,15 +291,16 @@ function DetailPanel({
           type="button"
           onClick={onClose}
           aria-label="Close detail panel"
-          className="-mr-1 -mt-1 shrink-0 rounded-full p-1 text-slate-500 transition hover:bg-slate-800 hover:text-slate-200"
+          className="shrink-0 p-1 transition hover:bg-white/5"
+          style={{ color: "var(--text-muted)" }}
         >
           <svg
-            width="18"
-            height="18"
+            width="16"
+            height="16"
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
-            strokeWidth="2"
+            strokeWidth="1.7"
             strokeLinecap="round"
           >
             <path d="M18 6 6 18M6 6l12 12" />
@@ -274,160 +308,387 @@ function DetailPanel({
         </button>
       </div>
 
-      {paper.authors.length > 0 && (
-        <p className="text-xs text-slate-400">
-          {paper.authors.slice(0, 6).join(", ")}
-          {paper.authors.length > 6
-            ? ` and ${paper.authors.length - 6} more`
-            : ""}
-        </p>
-      )}
+      <div className="flex flex-1 flex-col gap-6 px-7 pb-8 pt-6">
+        {paper.authors.length > 0 && (
+          <p
+            className="text-[13px] italic leading-relaxed"
+            style={{ color: "var(--text-muted)" }}
+          >
+            {paper.authors.slice(0, 6).join(", ")}
+            {paper.authors.length > 6
+              ? `, and ${paper.authors.length - 6} more`
+              : ""}
+          </p>
+        )}
 
-      {(paper.citationCount != null ||
-        (paper.influentialCitationCount != null &&
-          paper.influentialCitationCount > 0)) && (
-        <div className="flex flex-wrap gap-1.5 text-[11px]">
-          {paper.citationCount != null && (
-            <span className="rounded-full bg-slate-800 px-2 py-0.5 text-slate-300">
-              {paper.citationCount.toLocaleString()} citations
-            </span>
-          )}
-          {paper.influentialCitationCount != null &&
-            paper.influentialCitationCount > 0 && (
-              <span className="rounded-full bg-amber-500/20 px-2 py-0.5 text-amber-300">
-                {paper.influentialCitationCount} influential
+        {(paper.citationCount != null ||
+          (paper.influentialCitationCount != null &&
+            paper.influentialCitationCount > 0)) && (
+          <div
+            className="flex flex-wrap items-baseline gap-x-6 gap-y-1 pb-1 text-[12px]"
+            style={{ color: "var(--text-muted)" }}
+          >
+            {paper.citationCount != null && (
+              <span>
+                <span
+                  className="tabular-nums"
+                  style={{ color: "var(--text)", fontSize: 14 }}
+                >
+                  {paper.citationCount.toLocaleString()}
+                </span>{" "}
+                citations
               </span>
             )}
-        </div>
-      )}
-
-      {paragraph && (
-        <p className="pr-1 text-xs leading-relaxed text-slate-300">
-          {paragraph}
-        </p>
-      )}
-
-      {figures.length > 0 && (
-        <section className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
-          <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
-            Figures
-          </h3>
-          <div className="space-y-3">
-            {figures.map((figure, index) => (
-              <article key={`${figure.imageUrl}-${index}`} className="space-y-1.5">
-                <img
-                  src={figure.imageUrl}
-                  alt={figure.caption ?? `Figure ${index + 1}`}
-                  className="w-full rounded-lg border border-slate-700/80 bg-slate-900 object-contain"
-                  loading="lazy"
-                />
-                {figure.caption && (
-                  <p className="text-[11px] leading-relaxed text-slate-300">{figure.caption}</p>
-                )}
-                {figure.description && (
-                  <p className="text-[11px] leading-relaxed text-slate-400">
-                    {figure.description}
-                  </p>
-                )}
-              </article>
-            ))}
+            {paper.influentialCitationCount != null &&
+              paper.influentialCitationCount > 0 && (
+                <span>
+                  <span
+                    className="tabular-nums"
+                    style={{ color: "var(--accent)", fontSize: 14 }}
+                  >
+                    {paper.influentialCitationCount}
+                  </span>{" "}
+                  influential
+                </span>
+              )}
           </div>
-        </section>
-      )}
+        )}
 
-      {methodology && (
-        <section className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
-          <h3 className="mb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
-            Methodology
-          </h3>
-          <p className="text-xs leading-relaxed text-slate-300">{methodology}</p>
-        </section>
-      )}
-
-      {results && (
-        <section className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
-          <h3 className="mb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
-            Results
-          </h3>
-          <p className="text-xs leading-relaxed text-slate-300">{results}</p>
-        </section>
-      )}
-
-      {futureWork && (
-        <section className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
-          <h3 className="mb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
-            Future Work
-          </h3>
-          <p className="text-xs leading-relaxed text-slate-300">{futureWork}</p>
-        </section>
-      )}
-
-      {paper.url && (
-        <a
-          href={paper.url}
-          target="_blank"
-          rel="noreferrer"
-          className="mt-auto inline-flex items-center justify-center gap-1.5 rounded-lg bg-slate-100 px-3 py-2 text-xs font-medium text-slate-900 transition hover:bg-white"
-        >
-          Open paper
-          <svg
-            width="12"
-            height="12"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
+        {paragraph && (
+          <p
+            className="text-[14px] leading-[1.6]"
+            style={{ color: "var(--text)" }}
           >
-            <path d="M7 17 17 7M7 7h10v10" />
-          </svg>
-        </a>
-      )}
+            {paragraph}
+          </p>
+        )}
+
+        {figures.length > 0 && (
+          <Section label="Figures">
+            <div className="space-y-5">
+              {figures.map((figure, index) => (
+                <figure
+                  key={`${figure.imageUrl}-${index}`}
+                  className="space-y-2"
+                >
+                  {/*
+                   * White matting around the figure so transparent or
+                   * light-on-light scientific figures render correctly.
+                   * The previous bg-slate-900 swallowed PNGs with
+                   * transparent backgrounds.
+                   */}
+                  <div
+                    className="overflow-hidden"
+                    style={{
+                      background: "#ffffff",
+                      border: "1px solid var(--line)",
+                      padding: 10,
+                    }}
+                  >
+                    <img
+                      src={figure.imageUrl}
+                      alt={figure.caption ?? `Figure ${index + 1}`}
+                      className="block w-full object-contain"
+                      style={{ background: "#ffffff" }}
+                      loading="lazy"
+                    />
+                  </div>
+                  {(figure.caption || figure.description) && (
+                    <figcaption className="space-y-1 text-[12px] leading-relaxed">
+                      {figure.caption && (
+                        <p style={{ color: "var(--text)" }}>
+                          <span
+                            className="mr-1 italic"
+                            style={{ color: "var(--text-muted)" }}
+                          >
+                            Fig. {index + 1}.
+                          </span>
+                          {figure.caption}
+                        </p>
+                      )}
+                      {figure.description && (
+                        <p style={{ color: "var(--text-muted)" }}>
+                          {figure.description}
+                        </p>
+                      )}
+                    </figcaption>
+                  )}
+                </figure>
+              ))}
+            </div>
+          </Section>
+        )}
+
+        {methodology && (
+          <Section label="Methodology">
+            <p
+              className="text-[13px] leading-[1.65]"
+              style={{ color: "var(--text)" }}
+            >
+              {methodology}
+            </p>
+          </Section>
+        )}
+
+        {results && (
+          <Section label="Results">
+            <p
+              className="text-[13px] leading-[1.65]"
+              style={{ color: "var(--text)" }}
+            >
+              {results}
+            </p>
+          </Section>
+        )}
+
+        {futureWork && (
+          <Section label="Future work">
+            <p
+              className="text-[13px] leading-[1.65]"
+              style={{ color: "var(--text)" }}
+            >
+              {futureWork}
+            </p>
+          </Section>
+        )}
+
+        {bibtex && (
+        <section className="pt-5" style={{ borderTop: "1px solid var(--line)" }}>
+            <div className="mb-3 flex items-center justify-between">
+              <div className="label-eyebrow">BibTeX</div>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(bibtex);
+                    setCopiedBibtex(true);
+                    window.setTimeout(() => setCopiedBibtex(false), 1200);
+                  } catch {
+                    setCopiedBibtex(false);
+                  }
+                }}
+                className="rounded p-1 transition hover:bg-white/5"
+                style={{
+                  border: "1px solid var(--line)",
+                  color: "var(--text-muted)",
+                }}
+                aria-label={copiedBibtex ? "BibTeX copied" : "Copy BibTeX"}
+                title={copiedBibtex ? "Copied" : "Copy BibTeX"}
+              >
+                {copiedBibtex ? (
+                  <svg
+                    width="13"
+                    height="13"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="m20 6-11 11-5-5" />
+                  </svg>
+                ) : (
+                  <svg
+                    width="13"
+                    height="13"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                  </svg>
+                )}
+              </button>
+            </div>
+            <pre
+              className="overflow-x-auto whitespace-pre-wrap break-words rounded p-2 text-[11px] leading-relaxed"
+              style={{
+                background: "var(--bg)",
+                color: "var(--text-muted)",
+              }}
+            >
+              {bibtex}
+            </pre>
+          </section>
+        )}
+
+        {paper.url && (
+          <a
+            href={paper.url}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-auto inline-flex items-center justify-center gap-2 px-4 py-2.5 text-[12px] uppercase tracking-[0.18em] transition hover:opacity-90"
+            style={{
+              background: "var(--accent)",
+              color: "#1a1207",
+              fontWeight: 500,
+            }}
+          >
+            Read paper
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M7 17 17 7M7 7h10v10" />
+            </svg>
+          </a>
+        )}
+      </div>
     </aside>
   );
 }
 
-function StatusPill({
-  phase,
+// Hairline-divided section with an editorial label. Replaces the previous
+// bordered card-in-card boxes that gave the panel a "form" feel.
+function Section({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="pt-5" style={{ borderTop: "1px solid var(--line)" }}>
+      <div className="label-eyebrow mb-3">{label}</div>
+      {children}
+    </section>
+  );
+}
+
+// Top masthead — replaces the previous floating "PaperNet" status pill with
+// a thin hairline bar that runs across the top of the canvas. The Playfair
+// wordmark and the eyebrow stat row read more like a publication than a
+// dashboard, which was the request: "looks AI-generated".
+function Masthead({
   loading,
+  phase,
   nodeCount,
   edgeCount,
   subtopicCount,
   statusText,
   statusBusy,
+  onToggleRuns,
+  runsOpen,
+  activeQuery,
 }: {
-  phase: Phase;
   loading: boolean;
+  phase: Phase;
   nodeCount: number;
   edgeCount: number;
   subtopicCount: number;
   statusText: string;
   statusBusy: boolean;
+  onToggleRuns: () => void;
+  runsOpen: boolean;
+  activeQuery: string;
 }) {
-  let dot = "bg-slate-600";
-  const label = statusText || "Idle";
-  if (loading && phase === "idle") {
-    dot = "bg-amber-400";
-  } else if (loading && phase === "seeds") {
-    dot = "bg-amber-400";
-  } else if (phase === "seeds") {
-    dot = "bg-sky-400";
-  } else if (phase === "citations") {
-    dot = "bg-emerald-400";
-  }
+  let dot: string = "rgba(255,255,255,0.18)";
+  if (loading) dot = "var(--accent)";
+  else if (phase === "seeds") dot = "#9bb1c2";
+  else if (phase === "citations") dot = "var(--accent)";
   return (
-    <div className="pointer-events-auto absolute left-16 top-4 z-20 flex items-center gap-2 rounded-full border border-slate-700/80 bg-slate-900/85 px-3 py-1.5 text-xs text-slate-300 shadow-lg backdrop-blur">
-      <span className="font-semibold text-slate-100">PaperNet</span>
-      <span className="text-slate-600">·</span>
-      <span className={`inline-block h-1.5 w-1.5 rounded-full ${dot} ${statusBusy ? "animate-pulse" : ""}`} />
-      <span>{`Status: ${label}`}</span>
-    </div>
+    <header
+      className="pointer-events-auto absolute inset-x-0 top-0 z-30 flex items-center justify-between gap-4 border-b px-5 py-3 text-[color:var(--text)]"
+      style={{
+        background: "rgba(12, 13, 16, 0.78)",
+        borderColor: "var(--line)",
+        backdropFilter: "blur(6px)",
+      }}
+    >
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={onToggleRuns}
+          aria-label="Toggle previous runs"
+          aria-expanded={runsOpen}
+          className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[color:var(--text-muted)] transition hover:bg-white/5 hover:text-[color:var(--text)]"
+        >
+          <svg
+            width="14"
+            height="14"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.7"
+            strokeLinecap="round"
+          >
+            <path d="M3 6h18M3 12h18M3 18h18" />
+          </svg>
+        </button>
+        <div className="flex items-baseline gap-2">
+          <span className="font-serif text-[18px] font-semibold leading-none tracking-tight text-[color:var(--text)]">
+            PaperNet
+          </span>
+        </div>
+      </div>
+
+      <div className="hidden items-center gap-5 text-[11px] sm:flex">
+        {activeQuery && (
+          <span
+            className="max-w-[28ch] truncate text-[12px] font-medium"
+            style={{ color: "var(--text-muted)" }}
+            title={activeQuery}
+          >
+            &ldquo;{activeQuery}&rdquo;
+          </span>
+        )}
+        <Stat label="Papers" value={nodeCount} />
+        <Stat label="Edges" value={edgeCount} />
+        <Stat label="Topics" value={subtopicCount} />
+        <span
+          className="inline-flex items-center gap-2"
+          style={{ color: "var(--text-muted)" }}
+        >
+          <span
+            className={statusBusy ? "animate-pulse" : ""}
+            style={{
+              display: "inline-block",
+              height: 6,
+              width: 6,
+              borderRadius: 999,
+              background: dot,
+            }}
+          />
+          <span className="text-[11px] tracking-wide">{statusText || "Idle"}</span>
+        </span>
+      </div>
+    </header>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: number }) {
+  return (
+    <span className="inline-flex items-baseline gap-1.5">
+      <span
+        className="text-[14px] font-medium tabular-nums"
+        style={{ color: "var(--text)" }}
+      >
+        {value}
+      </span>
+      <span
+        className="text-[10px] uppercase tracking-[0.2em]"
+        style={{ color: "var(--text-faint)" }}
+      >
+        {label}
+      </span>
+    </span>
   );
 }
 
 function SubtopicLegend({
   subtopics,
+  graphNodes,
   hoveredColor,
   onHover,
   collapsed,
@@ -435,6 +696,7 @@ function SubtopicLegend({
   showSemanticLegend,
 }: {
   subtopics: Subtopic[];
+  graphNodes: Node<AnyNodeData>[];
   hoveredColor: string | null;
   onHover: (color: string | null) => void;
   collapsed: boolean;
@@ -443,63 +705,88 @@ function SubtopicLegend({
 }) {
   if (subtopics.length === 0 && !showSemanticLegend) return null;
   return (
-    <div className="pointer-events-auto absolute left-4 top-14 z-20 flex max-w-[270px] flex-col gap-1 rounded-2xl border border-slate-700/80 bg-slate-900/85 p-2.5 text-xs text-slate-200 shadow-lg backdrop-blur">
+    <aside
+      className="pointer-events-auto absolute left-5 top-[68px] z-20 flex w-[260px] flex-col gap-px border text-[12px]"
+      style={{
+        background: "var(--bg-elev)",
+        borderColor: "var(--line)",
+      }}
+    >
       <button
         type="button"
         onClick={onToggleCollapsed}
-        className="flex items-center justify-between rounded-lg px-1 py-1 text-left text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400 transition hover:bg-slate-800/70"
+        className="flex items-center justify-between px-3 py-2 text-left transition hover:bg-white/5"
       >
-        <span>Subtopics</span>
-        <span>{collapsed ? "+" : "-"}</span>
+        <span className="label-eyebrow">Topics</span>
+        <span style={{ color: "var(--text-faint)", fontSize: 12 }}>
+          {collapsed ? "+" : "−"}
+        </span>
       </button>
       {!collapsed &&
         subtopics.map((topic) => {
           const isActive = hoveredColor === null || hoveredColor === topic.color;
+          const total = subtopicPaperTotal(topic, graphNodes);
           return (
             <button
               key={topic.color + topic.label}
               type="button"
               onMouseEnter={() => onHover(topic.color)}
               onMouseLeave={() => onHover(null)}
-              className="flex items-center gap-2 rounded-lg px-2 py-1 text-left transition hover:bg-slate-800"
-              style={{ opacity: isActive ? 1 : 0.35 }}
+              className="flex items-center gap-2.5 px-3 py-1.5 text-left transition hover:bg-white/5"
+              style={{ opacity: isActive ? 1 : 0.4 }}
+              aria-label={`${topic.label}: ${total} papers`}
             >
               <span
-                className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
-                style={{ background: topic.color, boxShadow: `0 0 8px ${topic.color}80` }}
+                className="inline-block h-[7px] w-[7px] shrink-0 rounded-sm"
+                style={{ background: topic.color }}
                 aria-hidden
               />
-              <span className="truncate text-slate-100">{topic.label}</span>
-              <span className="ml-auto pl-1 text-[10px] text-slate-500">
-                {topic.seedIds.length}
+              <span
+                className="min-w-0 truncate"
+                style={{ color: "var(--text)" }}
+              >
+                {topic.label}
+              </span>
+              <span
+                className="ml-auto shrink-0 pl-1 text-[10px] tabular-nums leading-none"
+                style={{ color: "var(--text)" }}
+                title={`${total} paper${total === 1 ? "" : "s"} in this topic`}
+              >
+                {total}
               </span>
             </button>
           );
         })}
       {showSemanticLegend && (
-        <div className="mt-1 border-t border-slate-700/80 pt-1.5">
-          <div className="px-1 pb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
-            Semantic Edges
-          </div>
+        <div
+          className="mt-px px-3 pb-2 pt-2"
+          style={{ borderTop: "1px solid var(--line)" }}
+        >
+          <div className="label-eyebrow pb-1.5">Semantic Edges</div>
           {[
-            { name: "Builds On", color: "#22c55e", dash: "" },
-            { name: "Similar Approach", color: "#60a5fa", dash: "4 2" },
-            { name: "Contrasting Approach", color: "#f97316", dash: "2 2" },
+            { name: "Builds on", color: "#9bb37c", dash: "" },
+            { name: "Similar approach", color: "#9eb1c2", dash: "4 2" },
+            { name: "Contrasting", color: "#c79373", dash: "2 2" },
           ].map((item) => (
-            <div key={item.name} className="flex items-center gap-2 rounded-md px-2 py-1">
+            <div
+              key={item.name}
+              className="flex items-center gap-2 py-0.5"
+            >
               <span
-                className="inline-block h-0.5 w-6"
+                className="inline-block h-px w-7"
                 style={{
                   background: item.color,
                   borderTop: item.dash ? `1px dashed ${item.color}` : undefined,
                 }}
               />
-              <span className="text-[11px] text-slate-200">{item.name}</span>
+              <span style={{ color: "var(--text)", fontSize: 11 }}>
+                {item.name}
+              </span>
             </div>
           ))}
         </div>
       )}
-    </div>
+    </aside>
   );
 }
 
@@ -591,6 +878,26 @@ export default function Home() {
       ? semanticEdges
       : graph.edges;
 
+  // Unify on smooth bezier curves and solid strokes (old runs may be smoothstep
+  // with dashed semantic styles; we strip dashes and avoid animated edge layers).
+  const flowEdges = useMemo(
+    () =>
+      activeEdges.map((edge) => {
+        const s = (edge.style ?? {}) as CSSProperties & { strokeDasharray?: string };
+        const { strokeDasharray: _d, ...rest } = s;
+        return {
+          ...edge,
+          type: "simplebezier" as const,
+          animated: false,
+          style: {
+            ...rest,
+            strokeLinecap: "round" as const,
+          },
+        };
+      }),
+    [activeEdges],
+  );
+
   const adjacency = useMemo(() => {
     const map = new Map<string, Set<string>>();
     // Halos aren't real graph members — skip them so they never appear
@@ -599,12 +906,12 @@ export default function Home() {
       if (node.type === "halo") continue;
       map.set(node.id, new Set());
     }
-    for (const edge of activeEdges) {
+    for (const edge of flowEdges) {
       map.get(edge.source)?.add(edge.target);
       map.get(edge.target)?.add(edge.source);
     }
     return map;
-  }, [activeEdges, graph.nodes]);
+  }, [flowEdges, graph.nodes]);
 
   // BFS to depth 2 so hovering a seed reveals its citations *and* the
   // other seeds that share those citations, and hovering a citation
@@ -664,8 +971,8 @@ export default function Home() {
   }, [connectedIds, graph.nodes]);
 
   const displayEdges = useMemo(() => {
-    if (!connectedIds) return activeEdges;
-    return activeEdges.map((edge) => {
+    if (!connectedIds) return flowEdges;
+    return flowEdges.map((edge) => {
       const active =
         connectedIds.has(edge.source) && connectedIds.has(edge.target);
       const pe: CSSProperties["pointerEvents"] = active ? "auto" : "none";
@@ -678,7 +985,7 @@ export default function Home() {
         },
       };
     });
-  }, [activeEdges, connectedIds]);
+  }, [flowEdges, connectedIds]);
 
   const runQuery = async (raw: string) => {
     const nextQuery = raw.trim();
@@ -877,7 +1184,7 @@ export default function Home() {
   const loadRuns = useCallback(async () => {
     setLoadingRuns(true);
     try {
-      const response = await fetch("/api/research/runs");
+      const response = await fetch("/api/research/runs", { cache: "no-store" });
       const data = (await response.json()) as RunsApiResponse;
       if (!response.ok) throw new Error(data.error ?? "Failed to load runs");
       setAvailableRuns(data.runs ?? []);
@@ -896,9 +1203,13 @@ export default function Home() {
     try {
       const response = await fetch(
         `/api/research/runs?runId=${encodeURIComponent(nextRunId)}`,
+        { cache: "no-store" },
       );
       const data = (await response.json()) as RunLoadResponse;
       if (!response.ok) throw new Error(data.error ?? "Failed to load run");
+      if (!data.graph?.nodes) {
+        throw new Error("Saved run is incomplete (missing graph). Try a new search.");
+      }
       setRunId(data.runId);
       setActiveQuery(data.query ?? "");
       setQuery(data.query ?? "");
@@ -917,7 +1228,10 @@ export default function Home() {
   const showEmptyState = !loading && paperNodeCount === 0;
 
   return (
-    <main className="relative h-screen w-screen overflow-hidden bg-slate-950 text-slate-100">
+    <main
+      className="relative h-screen w-screen overflow-hidden text-[color:var(--text)]"
+      style={{ background: "var(--bg)" }}
+    >
       <ReactFlow
         nodes={displayNodes}
         edges={displayEdges}
@@ -961,76 +1275,67 @@ export default function Home() {
         <Background
           variant={BackgroundVariant.Dots}
           gap={28}
-          size={1}
-          color="#1e293b"
+          size={0.9}
+          color="rgba(255, 248, 235, 0.055)"
         />
-        <Controls
-          showInteractive={false}
-          className="!shadow-lg [&>button]:!border-slate-700 [&>button]:!bg-slate-900 [&>button]:!text-slate-200 [&>button:hover]:!bg-slate-800"
-        />
+        <Controls showInteractive={false} />
       </ReactFlow>
 
-      <StatusPill
-        phase={phase}
+      <Masthead
         loading={loading}
+        phase={phase}
         nodeCount={paperNodeCount}
         edgeCount={activeEdges.length}
         subtopicCount={subtopics.length}
         statusText={statusText}
         statusBusy={loading || runningSummaryCards || runningSemanticEdges}
+        onToggleRuns={() => {
+          const nextOpen = !runsMenuOpen;
+          setRunsMenuOpen(nextOpen);
+          if (nextOpen && availableRuns.length === 0) void loadRuns();
+        }}
+        runsOpen={runsMenuOpen}
+        activeQuery={activeQuery}
       />
 
-      <div className="pointer-events-auto absolute left-4 top-4 z-30">
-        <button
-          type="button"
-          onClick={() => {
-            const nextOpen = !runsMenuOpen;
-            setRunsMenuOpen(nextOpen);
-            if (nextOpen && availableRuns.length === 0) void loadRuns();
+      {runsMenuOpen && (
+        <div
+          className="pointer-events-auto scroll-fine absolute left-4 top-14 z-30 max-h-[60vh] w-[340px] overflow-y-auto border p-1 text-[12px]"
+          style={{
+            background: "var(--bg-elev)",
+            borderColor: "var(--line)",
+            borderRadius: 4,
           }}
-          aria-label="Open previous runs menu"
-          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-700/80 bg-slate-900/90 text-slate-200 shadow-lg transition hover:bg-slate-800"
         >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-          >
-            <path d="M3 6h18M3 12h18M3 18h18" />
-          </svg>
-        </button>
-        {runsMenuOpen && (
-          <div className="mt-2 max-h-[50vh] w-[340px] overflow-y-auto rounded-xl border border-slate-700/80 bg-slate-900/95 p-2 text-xs shadow-2xl backdrop-blur">
-            <div className="mb-1 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
-              Previous Runs
+          <div className="label-eyebrow px-3 pb-1.5 pt-2">Previous Runs</div>
+          {loadingRuns ? (
+            <div className="px-3 py-2" style={{ color: "var(--text-muted)" }}>
+              Loading...
             </div>
-            {loadingRuns ? (
-              <div className="px-2 py-2 text-slate-400">Loading...</div>
-            ) : availableRuns.length === 0 ? (
-              <div className="px-2 py-2 text-slate-500">No runs found.</div>
-            ) : (
-              availableRuns.map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  onClick={() => void loadExistingRun(item)}
-                  className="block w-full truncate rounded-lg px-2 py-2 text-left text-slate-200 transition hover:bg-slate-800"
-                  title={item}
-                >
-                  {item}
-                </button>
-              ))
-            )}
-          </div>
-        )}
-      </div>
+          ) : availableRuns.length === 0 ? (
+            <div className="px-3 py-2" style={{ color: "var(--text-faint)" }}>
+              No runs found.
+            </div>
+          ) : (
+            availableRuns.map((item) => (
+              <button
+                key={item}
+                type="button"
+                onClick={() => void loadExistingRun(item)}
+                className="block w-full truncate px-3 py-1.5 text-left transition hover:bg-white/5"
+                style={{ color: "var(--text)" }}
+                title={item}
+              >
+                {item}
+              </button>
+            ))
+          )}
+        </div>
+      )}
 
       <SubtopicLegend
         subtopics={subtopics}
+        graphNodes={graph.nodes}
         hoveredColor={hoveredCluster}
         onHover={setHoveredCluster}
         collapsed={subtopicsCollapsed}
@@ -1039,13 +1344,23 @@ export default function Home() {
       />
 
       {!showEmptyState && (
-        <div className="pointer-events-auto absolute bottom-6 left-15 z-30">
+        <div className="pointer-events-auto absolute bottom-6 left-5 z-30">
           <button
             type="button"
             onClick={() => void openIdeationModal()}
             disabled={loading || !runId || phase !== "citations"}
-            className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-700/80 bg-slate-900/95 px-3 text-xs font-medium text-indigo-200 shadow-2xl backdrop-blur transition hover:border-indigo-400/60 hover:text-indigo-100 disabled:cursor-not-allowed disabled:opacity-40"
+            className="inline-flex h-8 items-center gap-1.5 border px-3 text-[11px] uppercase tracking-[0.2em] transition disabled:cursor-not-allowed disabled:opacity-40"
+            style={{
+              background: "var(--bg-elev)",
+              borderColor: "var(--line)",
+              color: "var(--accent)",
+            }}
           >
+            <span
+              aria-hidden
+              className="inline-block h-1 w-1 rounded-full"
+              style={{ background: "var(--accent)" }}
+            />
             Ideate
           </button>
         </div>
@@ -1061,43 +1376,47 @@ export default function Home() {
       />
 
       {showEmptyState && (
-        <div className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center px-6">
-          <div className="text-center">
-            <div className="text-3xl font-semibold tracking-tight text-slate-300">
-              Map a research topic
-            </div>
-            <div className="mt-2 text-sm text-slate-500">
-              arXiv and ACM papers connected by high-impact citations.
-            </div>
-            <div className="pointer-events-auto mt-6 flex flex-wrap justify-center gap-2">
-              {EXAMPLES.map((example) => (
-                <button
-                  key={example}
-                  type="button"
-                  onClick={() => onExample(example)}
-                  className="rounded-full border border-slate-700 bg-slate-900/70 px-3 py-1.5 text-xs text-slate-300 shadow-sm backdrop-blur transition hover:border-slate-500 hover:bg-slate-800 hover:text-slate-100"
-                >
-                  {example}
-                </button>
-              ))}
+        <div className="pointer-events-none absolute inset-0 z-[5] flex items-center justify-center px-6">
+          <div className="max-w-[640px] text-center">
+            <h1 className="font-serif text-[clamp(2.5rem,8vw,4rem)] font-semibold leading-[1.05] tracking-[-0.02em] text-[color:var(--text)]">
+              PaperNet
+            </h1>
+            <div className="pointer-events-auto mt-10 w-full max-w-xl">
+              <p className="topic-bubbles-title mb-4 text-center">Suggested topics</p>
+              <div className="mx-auto grid w-full max-w-lg grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3">
+                {EXAMPLES.map((example) => (
+                  <button
+                    key={example}
+                    type="button"
+                    onClick={() => onExample(example)}
+                    className="topic-chip w-full min-h-[48px] rounded-full px-4 py-3 text-center text-[13.5px] leading-snug tracking-[-0.015em]"
+                  >
+                    {example}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      <section className="pointer-events-none absolute inset-x-0 bottom-0 z-10 p-6">
+      <section className="pointer-events-none absolute inset-x-0 bottom-0 z-10 p-5 sm:p-6">
         <form
           onSubmit={onSubmit}
-          className="pointer-events-auto mx-auto flex w-full max-w-3xl items-center gap-2 rounded-2xl border border-slate-700/80 bg-slate-900/95 p-2.5 shadow-2xl backdrop-blur"
+          className="search-shell pointer-events-auto mx-auto flex w-full max-w-2xl min-h-[52px] items-center gap-1.5 pl-4 pr-1.5"
         >
-          <span className="ml-2 text-slate-500">
+          <span
+            className="shrink-0"
+            style={{ color: "var(--text-muted)" }}
+            aria-hidden
+          >
             <svg
               width="18"
               height="18"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
-              strokeWidth="2"
+              strokeWidth="1.6"
               strokeLinecap="round"
               strokeLinejoin="round"
             >
@@ -1108,24 +1427,26 @@ export default function Home() {
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Describe a research topic..."
+            placeholder="Search papers and topics…"
             disabled={loading}
-            className="h-11 flex-1 bg-transparent px-1 text-sm text-slate-100 outline-none placeholder:text-slate-500 disabled:opacity-60"
+            className="min-w-0 flex-1 bg-transparent py-2.5 pl-1 pr-1 text-[14px] leading-tight outline-none placeholder:text-[color:var(--text-faint)] disabled:opacity-60"
+            style={{ color: "var(--text)" }}
           />
           {query && !loading && (
             <button
               type="button"
               onClick={() => setQuery("")}
               aria-label="Clear query"
-              className="rounded-md p-1 text-slate-500 transition hover:bg-slate-800 hover:text-slate-200"
+              className="shrink-0 rounded-full p-2 transition hover:bg-white/[0.06]"
+              style={{ color: "var(--text-faint)" }}
             >
               <svg
-                width="16"
-                height="16"
+                width="15"
+                height="15"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
-                strokeWidth="2"
+                strokeWidth="1.7"
                 strokeLinecap="round"
               >
                 <path d="M18 6 6 18M6 6l12 12" />
@@ -1135,11 +1456,22 @@ export default function Home() {
           <button
             type="submit"
             disabled={loading || !query.trim()}
-            className="inline-flex h-11 items-center gap-2 rounded-xl bg-slate-100 px-4 text-sm font-medium text-slate-900 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-40"
+            className="inline-flex h-10 shrink-0 items-center gap-2 rounded-full px-5 text-[12px] uppercase tracking-[0.2em] transition disabled:cursor-not-allowed disabled:opacity-40"
+            style={{
+              background: "var(--accent)",
+              color: "#1a1207",
+              fontWeight: 600,
+            }}
           >
             {loading ? (
               <>
-                <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-slate-400 border-t-slate-900" />
+                <span
+                  className="inline-block h-2.5 w-2.5 animate-spin rounded-full border-2"
+                  style={{
+                    borderColor: "rgba(26,18,7,0.3)",
+                    borderTopColor: "#1a1207",
+                  }}
+                />
                 Mapping
               </>
             ) : (
@@ -1148,55 +1480,78 @@ export default function Home() {
           </button>
         </form>
 
-        <div className="pointer-events-none mx-auto mt-2 flex max-w-3xl items-center justify-between gap-3 px-2 text-[11px] text-slate-500">
+        <div
+          className="pointer-events-none mx-auto mt-2.5 flex max-w-2xl items-center justify-between gap-3 px-2 text-[11px] leading-relaxed"
+          style={{ color: "var(--text-faint)" }}
+        >
           <span className="truncate">
             {error ? (
-              <span className="text-rose-400">{error}</span>
+              <span style={{ color: "var(--danger)" }}>{error}</span>
+            ) : showEmptyState ? (
+              <span>Pick a topic or search below to build your map.</span>
             ) : (
-              <span>Press Enter or hit Map to build the graph.</span>
+              <span>Click a paper for details. Scroll to zoom, drag to pan.</span>
             )}
           </span>
           {loading && phase === "idle" && (
-            <span className="shrink-0 text-slate-500">
-              Stage 1 of 2 · Semantic Scholar
-            </span>
+            <span className="shrink-0">Fetching · Semantic Scholar</span>
           )}
           {loading && phase === "seeds" && (
-            <span className="shrink-0 text-slate-500">
-              Stage 2 of 2 · Semantic Scholar citations
-            </span>
+            <span className="shrink-0">Fetching · Semantic Scholar citations</span>
           )}
           {!loading && summaryStatus && (
-            <span className="shrink-0 text-emerald-600">{summaryStatus}</span>
+            <span
+              className="shrink-0"
+              style={{ color: "var(--accent)" }}
+            >
+              {summaryStatus}
+            </span>
           )}
         </div>
       </section>
 
       {!showEmptyState && (
-        <div className="pointer-events-auto absolute bottom-6 right-6 z-30 flex items-end gap-2">
-        <div className="flex flex-col items-start gap-1">
+        <div className="pointer-events-auto absolute bottom-6 right-6 z-30 flex flex-col items-end gap-1">
           {runId && paperNodeCount > 0 && (runningSemanticEdges || hasSemanticEdges) && (
             <div
-              className={`px-1 text-[9px] font-normal ${
-                runningSemanticEdges ? "animate-pulse text-indigo-300" : "text-slate-400"
-              }`}
+              className={`px-1 text-[10px] tracking-wide ${runningSemanticEdges ? "animate-pulse" : ""}`}
+              style={{
+                color: runningSemanticEdges
+                  ? "var(--accent)"
+                  : "var(--text-faint)",
+              }}
             >
-              {runningSemanticEdges ? "Creating custom edges" : "View custom edges"}
+              {runningSemanticEdges
+                ? "Inferring semantic edges…"
+                : "Semantic edges available"}
             </div>
           )}
-          <div className="rounded-xl border border-slate-700/80 bg-slate-900/95 p-1.5 shadow-2xl backdrop-blur">
-          <div className="mb-1 px-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
-            View
-          </div>
-          <div className="flex items-center gap-1">
+          <div
+            className="flex items-stretch border"
+            style={{
+              background: "var(--bg-elev)",
+              borderColor: "var(--line)",
+            }}
+          >
+            <span
+              className="label-eyebrow flex items-center px-3"
+              style={{ borderRight: "1px solid var(--line)" }}
+            >
+              View
+            </span>
             <button
               type="button"
               onClick={() => setEdgeViewMode("citation")}
-              className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
-                effectiveEdgeViewMode === "citation"
-                  ? "bg-slate-100 text-slate-900"
-                  : "text-slate-300 hover:bg-slate-800"
-              }`}
+              className="px-3 py-1.5 text-[11px] uppercase tracking-[0.16em] transition"
+              style={{
+                background:
+                  effectiveEdgeViewMode === "citation" ? "var(--accent)" : "transparent",
+                color:
+                  effectiveEdgeViewMode === "citation"
+                    ? "#1a1207"
+                    : "var(--text-muted)",
+                fontWeight: effectiveEdgeViewMode === "citation" ? 500 : 400,
+              }}
             >
               Citation
             </button>
@@ -1204,43 +1559,68 @@ export default function Home() {
               type="button"
               onClick={() => hasSemanticEdges && setEdgeViewMode("semantic")}
               disabled={!hasSemanticEdges}
-              className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
-                effectiveEdgeViewMode === "semantic"
-                  ? "bg-indigo-400 text-slate-950"
-                  : "text-slate-300 hover:bg-slate-800"
-              } disabled:cursor-not-allowed disabled:opacity-40`}
+              className="px-3 py-1.5 text-[11px] uppercase tracking-[0.16em] transition disabled:cursor-not-allowed disabled:opacity-40"
+              style={{
+                background:
+                  effectiveEdgeViewMode === "semantic" ? "var(--accent)" : "transparent",
+                color:
+                  effectiveEdgeViewMode === "semantic"
+                    ? "#1a1207"
+                    : "var(--text-muted)",
+                borderLeft: "1px solid var(--line)",
+                fontWeight: effectiveEdgeViewMode === "semantic" ? 500 : 400,
+              }}
             >
               Semantic
             </button>
           </div>
         </div>
-        </div>
-        </div>
       )}
 
       {ideationOpen && (
-        <div className="pointer-events-auto absolute inset-0 z-40 flex items-center justify-center bg-slate-950/70 p-6">
-          <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl">
-            <div className="mb-4 flex items-start justify-between gap-4">
+        <div
+          className="pointer-events-auto absolute inset-0 z-40 flex items-center justify-center p-6"
+          style={{ background: "rgba(8, 9, 11, 0.72)" }}
+        >
+          <div
+            className="scroll-fine max-h-[90vh] w-full max-w-3xl overflow-y-auto border p-8"
+            style={{
+              background: "var(--bg-elev)",
+              borderColor: "var(--line)",
+            }}
+          >
+            <div className="mb-6 flex items-start justify-between gap-4">
               <div>
-                <h2 className="text-lg font-semibold text-slate-100">Ideation</h2>
-                <p className="text-xs text-slate-400">
-                  Analyze all node summaries to synthesize the most explored research directions and the highest-potential future directions to build on.
+                <div className="label-eyebrow mb-2">Synthesis</div>
+                <h2
+                  className="font-serif text-[28px] font-semibold leading-tight tracking-tight"
+                  style={{ color: "var(--text)" }}
+                >
+                  Recurrent themes and prospective directions.
+                </h2>
+                <p
+                  className="mt-2 max-w-prose text-[13px] leading-relaxed"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  Derived from the summary cards for this run: a concise inventory
+                  of established directions, followed by a shorter list of
+                  opportunities for further work.
                 </p>
               </div>
               <button
                 type="button"
                 onClick={() => setIdeationOpen(false)}
-                className="rounded-md p-1 text-slate-400 transition hover:bg-slate-800 hover:text-slate-200"
+                className="p-1 transition hover:bg-white/5"
+                style={{ color: "var(--text-muted)" }}
                 aria-label="Close ideation modal"
               >
                 <svg
-                  width="18"
-                  height="18"
+                  width="16"
+                  height="16"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
-                  strokeWidth="2"
+                  strokeWidth="1.7"
                   strokeLinecap="round"
                 >
                   <path d="M18 6 6 18M6 6l12 12" />
@@ -1248,56 +1628,84 @@ export default function Home() {
               </button>
             </div>
 
-            <div className="mb-5 flex items-center gap-3">
+            <div className="mb-7 flex items-center gap-4">
               <button
                 type="button"
                 onClick={() => void runIdeate()}
                 disabled={runningIdeation}
-                className="inline-flex h-10 items-center gap-2 rounded-lg bg-indigo-500 px-4 text-sm font-medium text-white transition hover:bg-indigo-400 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex h-9 items-center gap-2 px-4 text-[12px] uppercase tracking-[0.18em] transition disabled:cursor-not-allowed disabled:opacity-50"
+                style={{
+                  background: "var(--accent)",
+                  color: "#1a1207",
+                  fontWeight: 500,
+                }}
               >
                 {runningIdeation
-                  ? "Running..."
+                  ? "Running…"
                   : ideation &&
                       (ideation.exploredDirections.length > 0 ||
                         ideation.futureDirections.length > 0)
-                    ? "Rerun"
-                    : "Synthesize"}
+                    ? "Again"
+                    : "Run"}
               </button>
-              <span className="text-xs text-slate-400">
+              <span
+                className="text-[12px] leading-snug"
+                style={{
+                  color: "var(--text-faint)",
+                }}
+              >
                 {ideation &&
                 (ideation.exploredDirections.length > 0 ||
                   ideation.futureDirections.length > 0)
-                  ? "Showing latest generated ideation."
-                  : "No ideation generated yet for this run."}
+                  ? "Results from the most recent run appear below."
+                  : "This step has not been run for the current search."}
               </span>
             </div>
 
-            <section className="mb-5">
-              <h3 className="mb-2 text-sm font-semibold text-slate-200">
-                Top explored directions
-              </h3>
-              <ol className="list-decimal space-y-2 pl-5 text-sm text-slate-300">
+            <section
+              className="mb-7 pt-5"
+              style={{ borderTop: "1px solid var(--line)" }}
+            >
+              <div className="label-eyebrow mb-3">Established directions</div>
+              <ol
+                className="list-decimal space-y-2.5 pl-5 text-[14px] leading-relaxed"
+                style={{ color: "var(--text)" }}
+              >
                 {ideation?.exploredDirections?.length ? (
                   ideation.exploredDirections.map((item, idx) => (
                     <li key={`explored-${idx}`}>{item}</li>
                   ))
                 ) : (
-                  <li className="list-none text-slate-500">Run Synthesize to generate directions.</li>
+                  <li
+                    className="list-none italic"
+                    style={{ color: "var(--text-faint)" }}
+                  >
+                    Run the action above once summary cards have been generated.
+                  </li>
                 )}
               </ol>
             </section>
 
-            <section>
-              <h3 className="mb-2 text-sm font-semibold text-slate-200">
-                Most promising future directions
-              </h3>
-              <ol className="list-decimal space-y-2 pl-5 text-sm text-slate-300">
+            <section
+              className="pt-5"
+              style={{ borderTop: "1px solid var(--line)" }}
+            >
+              <div className="label-eyebrow mb-3">Further opportunities</div>
+              <ol
+                className="list-decimal space-y-2.5 pl-5 text-[14px] leading-relaxed"
+                style={{ color: "var(--text)" }}
+              >
                 {ideation?.futureDirections?.length ? (
                   ideation.futureDirections.map((item, idx) => (
                     <li key={`future-${idx}`}>{item}</li>
                   ))
                 ) : (
-                  <li className="list-none text-slate-500">No future directions generated yet.</li>
+                  <li
+                    className="list-none italic"
+                    style={{ color: "var(--text-faint)" }}
+                  >
+                    No output yet, or the model did not return this section.
+                  </li>
                 )}
               </ol>
             </section>
