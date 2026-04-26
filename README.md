@@ -127,7 +127,3 @@ csail_hack/
 ├── public/
 └── data/                        # Per-run JSON (typically gitignored)
 ```
-
-## License
-
-Add your license here.
