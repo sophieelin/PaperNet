@@ -1,4 +1,5 @@
-# PaperNet — CSAIL Agentic AI Hackathon
+# PaperNet — Dynamic Multi-Agent Research Network
+## CSAIL Agentic AI Hackathon
 
 ## Authors
 
