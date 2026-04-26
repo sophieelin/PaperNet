@@ -1,4 +1,4 @@
-# PaperNet — Dynamic Multi-Agent Research Network
+# PaperNet — Dynamic Multi-Agent Knowledge Graph
 ## CSAIL Agentic AI Hackathon
 
 ## Authors
