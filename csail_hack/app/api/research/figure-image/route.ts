@@ -18,9 +18,13 @@ export async function GET(request: NextRequest) {
 
   let target: URL;
   try {
-    target = new URL(decodeURIComponent(raw));
+    target = new URL(raw);
   } catch {
-    return NextResponse.json({ error: "Invalid url" }, { status: 400 });
+    try {
+      target = new URL(decodeURIComponent(raw));
+    } catch {
+      return NextResponse.json({ error: "Invalid url" }, { status: 400 });
+    }
   }
 
   if (target.protocol !== "https:" && target.protocol !== "http:") {
@@ -36,8 +40,9 @@ export async function GET(request: NextRequest) {
   const upstream = await fetch(target.toString(), {
     headers: {
       Accept: "image/avif,image/webp,image/*,*/*;q=0.8",
+      Referer: "https://arxiv.org/",
       "User-Agent":
-        "PaperNet/1.0 (figure proxy; research preview; +https://arxiv.org/help/policies)",
+        "Mozilla/5.0 (compatible; PaperNet/1.0; +https://arxiv.org) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     },
     next: { revalidate: 86_400 },
   });

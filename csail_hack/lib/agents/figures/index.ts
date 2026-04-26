@@ -1,3 +1,4 @@
+import { toAbsoluteFigureUrl } from "@/lib/figureImageUrl";
 import type { AgentInput } from "../types";
 
 /**
@@ -61,45 +62,6 @@ const getAttribute = (html: string, attribute: string) => {
   return html.match(pattern)?.[1];
 };
 
-const normalizeArxivFigureUrl = (url: string) => {
-  if (!url.startsWith("https://arxiv.org/")) return url;
-  try {
-    const parsed = new URL(url);
-    const segments = parsed.pathname.split("/").filter(Boolean);
-    const withHtml =
-      segments[0] === "html" ? segments : ["html", ...segments];
-
-    // Fix duplicate-id bug: /html/<id>/<id>/... -> /html/<id>/...
-    if (
-      withHtml.length >= 3 &&
-      withHtml[0] === "html" &&
-      withHtml[1] === withHtml[2]
-    ) {
-      withHtml.splice(2, 1);
-    }
-    parsed.pathname = `/${withHtml.join("/")}`;
-    return parsed.toString();
-  } catch {
-    if (url.startsWith("https://arxiv.org/html/")) return url;
-    return url.replace("https://arxiv.org/", "https://arxiv.org/html/");
-  }
-};
-
-const absoluteUrl = (url: string, paper?: AgentInput["paper"]) => {
-  try {
-    const raw = url.trim();
-    if (/^https?:\/\//i.test(raw)) return normalizeArxivFigureUrl(raw);
-
-    const baseUrl =
-      paper?.htmlUrl ??
-      paper?.url ??
-      (paper?.arxivId ? `https://arxiv.org/html/${paper.arxivId}/` : "https://arxiv.org/");
-    return normalizeArxivFigureUrl(new URL(raw, baseUrl).toString());
-  } catch {
-    return normalizeArxivFigureUrl(url);
-  }
-};
-
 const isHtmlWithImages = (content?: string): content is string =>
   Boolean(content && /<[^>]+>/i.test(content) && /<img\b/i.test(content));
 
@@ -117,7 +79,7 @@ const toCandidate = (
 
   const cleanCaption = truncate(caption?.replace(/\s+/g, " ").trim());
   const altText = truncate(getAttribute(imageTag, "alt")?.replace(/\s+/g, " ").trim(), 300);
-  const imageUrl = absoluteUrl(rawImageUrl, paper);
+  const imageUrl = toAbsoluteFigureUrl(rawImageUrl, paper);
   return {
     id: `figure-${sourceIndex + 1}`,
     sourceIndex,

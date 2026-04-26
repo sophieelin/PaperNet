@@ -23,6 +23,7 @@ import type {
   NodeProps,
   ReactFlowInstance,
 } from "@xyflow/react";
+import { figureImageDisplayUrl } from "@/lib/figureImageUrl";
 import type {
   AnyNodeData,
   GraphNodeData,
@@ -82,67 +83,6 @@ const sourceLabel = (paper: ResearchPaper) => {
   if (paper.source === "acm") return "ACM DL paper";
   return "Cited paper";
 };
-
-/**
- * Summary cards may store http, protocol-relative, entity-encoded, or relative
- * figure URLs. Normalize so <img> can load on localhost and over HTTPS.
- */
-function resolveFigureImageUrl(url: string, paper: ResearchPaper): string {
-  let u = url.trim();
-  if (!u) return u;
-  u = u.replace(/&amp;/g, "&");
-  if (u.startsWith("//")) u = `https:${u}`;
-  else if (u.startsWith("http://")) u = `https://${u.slice(7)}`;
-  u = u.replace("export.arxiv.org", "arxiv.org");
-  if (/^https?:\/\//i.test(u)) return normalizeArxivHtmlPathInUrl(u);
-  const base =
-    paper.htmlUrl?.trim() ||
-    (paper.arxivId ? `https://arxiv.org/html/${paper.arxivId}/` : undefined) ||
-    paper.url?.trim() ||
-    "https://arxiv.org/";
-  try {
-    return normalizeArxivHtmlPathInUrl(new URL(u, base).toString());
-  } catch {
-    return u;
-  }
-}
-
-/** Matches lib/agents/figures: de-dupe /html/{id}/{id}/... in arXiv HTML image paths. */
-function normalizeArxivHtmlPathInUrl(url: string): string {
-  try {
-    const parsed = new URL(url);
-    if (parsed.hostname !== "arxiv.org" && !parsed.hostname.endsWith(".arxiv.org")) {
-      return url;
-    }
-    const segments = parsed.pathname.split("/").filter(Boolean);
-    const withHtml = segments[0] === "html" ? segments : ["html", ...segments];
-    if (withHtml.length >= 3 && withHtml[0] === "html" && withHtml[1] === withHtml[2]) {
-      withHtml.splice(2, 1);
-      parsed.pathname = `/${withHtml.join("/")}`;
-      return parsed.toString();
-    }
-  } catch {
-    /* keep url */
-  }
-  return url;
-}
-
-/** Same-origin arXiv image URL so the browser is not blocked by hotlink/Referer rules. */
-function figureImageDisplayUrl(url: string, paper: ResearchPaper): string {
-  const resolved = resolveFigureImageUrl(url, paper);
-  if (!resolved.startsWith("http")) return resolved;
-  try {
-    const p = new URL(resolved);
-    if (p.protocol !== "http:" && p.protocol !== "https:") return resolved;
-    const h = p.hostname;
-    if (h === "arxiv.org" || h.endsWith(".arxiv.org")) {
-      return `/api/research/figure-image?url=${encodeURIComponent(p.toString())}`;
-    }
-  } catch {
-    /* fall through */
-  }
-  return resolved;
-}
 
 // These must match SEED_NODE_SIZE / CITATION_NODE_SIZE in lib/graph.ts so
 // dagre reserves the right amount of layout space for them.
@@ -448,7 +388,7 @@ function DetailPanel({
                   >
                     <img
                       src={figureImageDisplayUrl(figure.imageUrl, paper)}
-                      alt={figure.caption ?? `Figure ${index + 1}`}
+                      alt={figure.caption ? "" : `Figure ${index + 1}`}
                       className="block w-full object-contain"
                       style={{ background: "#ffffff" }}
                       loading="lazy"

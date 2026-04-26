@@ -41,7 +41,7 @@ const toResearchPaper = (entry: ArxivEntry): ResearchPaper | null => {
     published: entry.published,
     year: entry.published ? Number(entry.published.slice(0, 4)) : undefined,
     url,
-    htmlUrl: `https://arxiv.org/html/${id}`,
+    htmlUrl: `https://arxiv.org/html/${id}/`,
     pdfUrl: `https://arxiv.org/pdf/${id}.pdf`,
     arxivId: id,
   };
