@@ -1,6 +1,10 @@
 import { fetchAcmPapersByDois } from "@/lib/acm";
 import { fetchArxivPapersByIds } from "@/lib/arxiv";
 import type { CitationSelection, ResearchPaper } from "@/lib/papers";
+import {
+  refineSearchQueryForPaperSearch,
+  shouldRefineSearchByPaperCount,
+} from "@/lib/refineSearchQuery";
 
 const S2_ENDPOINT = "https://api.semanticscholar.org/graph/v1";
 const S2_UNAUTHENTICATED_DELAY_MS = 1200;
@@ -241,13 +245,13 @@ export async function searchSupportedPapers(
   const inFlight = inFlightSearches.get(cacheKey);
   if (inFlight) return inFlight;
 
-  const params = new URLSearchParams({
-    query,
-    limit: String(Math.min(100, Math.max(maxResults * 4, maxResults))),
-    fields: SEARCH_FIELDS,
-  });
-  const search = (async () => {
-    const response = await fetchSemanticScholar(`${S2_ENDPOINT}/paper/search?${params.toString()}`);
+  const runSemanticSearch = async (searchText: string) => {
+    const p = new URLSearchParams({
+      query: searchText,
+      limit: String(Math.min(100, Math.max(maxResults * 4, maxResults))),
+      fields: SEARCH_FIELDS,
+    });
+    const response = await fetchSemanticScholar(`${S2_ENDPOINT}/paper/search?${p.toString()}`);
     if (!response.ok) throw semanticScholarError(response, "searching papers");
 
     const data = (await response.json()) as S2SearchResponse;
@@ -258,8 +262,18 @@ export async function searchSupportedPapers(
       deduped.set(supported.id, supported);
       if (deduped.size >= maxResults) break;
     }
-    const papers = [...deduped.values()];
-    searchCache.set(cacheKey, { expiresAt: Date.now() + SEARCH_CACHE_TTL_MS, papers });
+    return [...deduped.values()];
+  };
+
+  const search = (async () => {
+    let papers = await runSemanticSearch(query);
+    if (shouldRefineSearchByPaperCount(papers.length) && process.env.OPENAI_API_KEY) {
+      const refined = await refineSearchQueryForPaperSearch(query);
+      if (refined) papers = await runSemanticSearch(refined);
+    }
+    if (papers.length) {
+      searchCache.set(cacheKey, { expiresAt: Date.now() + SEARCH_CACHE_TTL_MS, papers });
+    }
     return papers;
   })();
 

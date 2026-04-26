@@ -1,5 +1,9 @@
 import { XMLParser } from "fast-xml-parser";
 import type { ResearchPaper } from "@/lib/papers";
+import {
+  refineSearchQueryForPaperSearch,
+  shouldRefineSearchByPaperCount,
+} from "@/lib/refineSearchQuery";
 
 const ARXIV_ENDPOINT = "https://export.arxiv.org/api/query";
 const parser = new XMLParser({ ignoreAttributes: false });
@@ -108,10 +112,11 @@ const fetchArxiv = async (searchQuery: string, maxResults: number): Promise<Rese
   }, []);
 };
 
-export async function searchRecentArxivPapers(
+async function searchRecentArxivPapersWithQuery(
   query: string,
-  maxResults = 20,
-  daysBack = 365,
+  maxResults: number,
+  daysBack: number,
+  allowRefineWithOpenAI: boolean,
 ): Promise<ResearchPaper[]> {
   const { strict, relaxed } = buildSearchClauses(query);
   const dateClause = `AND submittedDate:${dateRange(daysBack)}`;
@@ -124,11 +129,34 @@ export async function searchRecentArxivPapers(
     `(${relaxed}) ${dateClause}`,
     `(${relaxed})`,
   ];
+  let papers: ResearchPaper[] = [];
   for (const searchQuery of attempts) {
-    const papers = await fetchArxiv(searchQuery, maxResults);
-    if (papers.length > 0) return papers;
+    const batch = await fetchArxiv(searchQuery, maxResults);
+    if (batch.length > 0) {
+      papers = batch;
+      break;
+    }
   }
-  return [];
+
+  if (!allowRefineWithOpenAI) return papers;
+  if (!shouldRefineSearchByPaperCount(papers.length)) return papers;
+  if (!process.env.OPENAI_API_KEY) return papers;
+  const refined = await refineSearchQueryForPaperSearch(query);
+  if (!refined) return papers;
+  return searchRecentArxivPapersWithQuery(refined, maxResults, daysBack, false);
+}
+
+/**
+ * Searches arXiv’s API for recent papers. If the first pass yields fewer than
+ * five results, a single OpenAI call may condense the query, then a second
+ * search runs (no further refinement after that).
+ */
+export async function searchRecentArxivPapers(
+  query: string,
+  maxResults = 20,
+  daysBack = 365,
+): Promise<ResearchPaper[]> {
+  return searchRecentArxivPapersWithQuery(query, maxResults, daysBack, true);
 }
 
 export async function fetchArxivPapersByIds(ids: string[]): Promise<ResearchPaper[]> {
