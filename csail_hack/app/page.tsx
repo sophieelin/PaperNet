@@ -42,6 +42,7 @@ type SummaryCardData = {
   summary?: { oneLine?: string; paragraph?: string };
   methodology?: { methodology?: string; results?: string; futureWork?: string };
   figures?: { figures?: Array<{ imageUrl: string; caption?: string; description?: string }> };
+  bibtex?: string;
 };
 type IdeationData = {
   exploredDirections: string[];
@@ -236,6 +237,7 @@ function DetailPanel({
   const results = card?.methodology?.results?.trim() ?? "";
   const futureWork = card?.methodology?.futureWork?.trim() ?? "";
   const figures = card?.figures?.figures ?? [];
+  const bibtex = card?.bibtex?.trim() ?? "";
   return (
     <aside className="pointer-events-auto absolute right-0 top-0 z-[70] flex h-full w-[50vw] min-w-[520px] max-w-[980px] flex-col gap-3 overflow-y-auto border-l border-slate-700/80 bg-slate-900/96 p-6 text-slate-100 shadow-2xl backdrop-blur">
       <div className="flex items-start justify-between gap-3">
@@ -353,6 +355,17 @@ function DetailPanel({
             Future Work
           </h3>
           <p className="text-xs leading-relaxed text-slate-300">{futureWork}</p>
+        </section>
+      )}
+
+      {bibtex && (
+        <section className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
+          <h3 className="mb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+            BibTeX
+          </h3>
+          <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-slate-950/70 p-2 text-[11px] leading-relaxed text-slate-300">
+            {bibtex}
+          </pre>
         </section>
       )}
 
