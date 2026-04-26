@@ -230,6 +230,7 @@ function DetailPanel({
   card: SummaryCardData | null;
   onClose: () => void;
 }) {
+  const [copiedBibtex, setCopiedBibtex] = useState(false);
   if (!paper) return null;
   const title = card?.summary?.oneLine?.trim() || paper.title;
   const paragraph = card?.summary?.paragraph?.trim() || paper.summary;
@@ -360,9 +361,55 @@ function DetailPanel({
 
       {bibtex && (
         <section className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
-          <h3 className="mb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
-            BibTeX
-          </h3>
+          <div className="mb-1 flex items-center justify-between">
+            <h3 className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
+              BibTeX
+            </h3>
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(bibtex);
+                  setCopiedBibtex(true);
+                  window.setTimeout(() => setCopiedBibtex(false), 1200);
+                } catch {
+                  setCopiedBibtex(false);
+                }
+              }}
+              className="rounded border border-slate-700 p-1 text-slate-300 transition hover:bg-slate-800 hover:text-slate-100"
+              aria-label={copiedBibtex ? "BibTeX copied" : "Copy BibTeX"}
+              title={copiedBibtex ? "Copied" : "Copy BibTeX"}
+            >
+              {copiedBibtex ? (
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="m20 6-11 11-5-5" />
+                </svg>
+              ) : (
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                </svg>
+              )}
+            </button>
+          </div>
           <pre className="overflow-x-auto whitespace-pre-wrap break-words rounded-md bg-slate-950/70 p-2 text-[11px] leading-relaxed text-slate-300">
             {bibtex}
           </pre>
