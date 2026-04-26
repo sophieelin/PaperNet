@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { buildCitationGraph } from "@/lib/graph";
-import { clusterPapersWithOpenAI } from "@/lib/openaiClustering";
+import { clusterPapersWithTitleVectors } from "@/lib/openaiClustering";
 import type { ResearchPaper } from "@/lib/papers";
 import { fetchTopCitationsForSeeds } from "@/lib/semanticScholar";
 import { readRunData, writeRunData } from "@/lib/storage";
@@ -18,20 +18,18 @@ export async function POST(request: Request) {
     );
     const { selections, dedupedChildren } = await fetchTopCitationsForSeeds(seeds, 3);
 
-    // Try the LLM-driven clusterer first when an API key is configured.
-    // It produces sharper topic labels and forces every paper into
-    // exactly one topic. If it fails for any reason (missing key,
-    // network, malformed response) we fall through to the heuristic
-    // clusterer baked into buildCitationGraph.
-    const llmClusters = await clusterPapersWithOpenAI(
+    // Vector-based title clustering (no OpenAI call): build an in-memory
+    // vector database from paper titles, then run k-means with cosine
+    // similarity where k = floor(totalPapers / 10).
+    const vectorClusters = await clusterPapersWithTitleVectors(
       meta.query ?? "",
       seeds,
       dedupedChildren,
     );
-    if (llmClusters) {
+    if (vectorClusters) {
       console.log(
-        "[citations] using OpenAI clustering:",
-        llmClusters.subtopics.length,
+        "[citations] using title-vector k-means clustering:",
+        vectorClusters.subtopics.length,
         "topics",
       );
     } else {
@@ -43,7 +41,7 @@ export async function POST(request: Request) {
       selections,
       dedupedChildren,
       meta.query,
-      llmClusters ?? undefined,
+      vectorClusters ?? undefined,
     );
 
     await writeRunData(runId, "citations.json", selections);

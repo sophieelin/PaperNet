@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type { Edge, Node } from "@xyflow/react";
 import { buildSummaryCard } from "@/lib/agents";
 import { buildCitationGraph } from "@/lib/graph";
-import { clusterPapersWithOpenAI } from "@/lib/openaiClustering";
+import { clusterPapersWithOpenAI } from "@/lib/openaiClustering2";
 import type { GraphNodeData, ResearchPaper } from "@/lib/papers";
 import { fetchTopCitationsForSeeds, searchSupportedPapers } from "@/lib/semanticScholar";
 import { readRunData, writeRunData } from "@/lib/storage";

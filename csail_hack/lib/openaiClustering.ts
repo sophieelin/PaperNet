@@ -1,248 +1,203 @@
 import { ORPHAN_COLOR, SEED_COLORS, type ClusterInfo } from "@/lib/graph";
 import type { ResearchPaper, Subtopic } from "@/lib/papers";
 
-// Why this module exists:
-//   The heuristic clusterer in lib/graph.ts groups *seeds* using
-//   bibliographic coupling + shared title phrases, and then assigns
-//   citations to whichever cluster owns most of their parents. That works
-//   but produces topic labels that are sometimes weak ("Generative
-//   Models", "Diffusion Approaches") and can leave many seeds as
-//   orphans.
-//
-//   This module asks OpenAI to do the same job using actual paper
-//   semantics (titles + abstracts), forcing every paper — seeds AND
-//   citations — into exactly one well-named subtopic. The result is
-//   returned in the *same* ClusterInfo shape so it slots into
-//   buildCitationGraph without further changes.
+const STOP_WORDS = new Set([
+  "a", "an", "the", "and", "or", "of", "for", "with", "in", "on", "to", "from",
+  "by", "using", "via", "toward", "towards", "approach", "method", "methods",
+  "based", "study", "analysis", "system", "systems", "model", "models", "paper",
+]);
 
-const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
-const DEFAULT_MODEL = "gpt-4o-mini";
+type Vector = number[];
 
-const truncate = (input: string, max: number): string => {
-  const flat = input.replace(/\s+/g, " ").trim();
-  if (flat.length <= max) return flat;
-  return `${flat.slice(0, Math.max(0, max - 1))}…`;
-};
+export function floorPapersDividedByTen(totalPapers: number): number {
+  return Math.floor(totalPapers / 10);
+}
 
-type RawSubtopic = { label?: unknown; paperIds?: unknown };
+function computeClusterCount(totalPapers: number): number {
+  // Requirement: divide paper count by 10 and take floor.
+  const raw = floorPapersDividedByTen(totalPapers);
+  return Math.max(1, Math.min(raw, totalPapers));
+}
 
-const sanitizeLabel = (raw: unknown): string => {
-  if (typeof raw !== "string") return "Untitled topic";
-  const trimmed = raw.trim().replace(/\s+/g, " ");
-  if (!trimmed) return "Untitled topic";
-  // Cap label length so it doesn't blow up the legend.
-  return trimmed.length > 60 ? `${trimmed.slice(0, 59)}…` : trimmed;
-};
+function tokenizeTitle(title: string): string[] {
+  const tokens = title.toLowerCase().match(/[a-z][a-z0-9-]+/g) ?? [];
+  return tokens.filter((t) => t.length >= 3 && !STOP_WORDS.has(t));
+}
 
-const sanitizeIds = (raw: unknown): string[] => {
-  if (!Array.isArray(raw)) return [];
-  const out: string[] = [];
-  for (const value of raw) {
-    if (typeof value === "string" && value.length > 0) out.push(value);
+function cosineSimilarity(a: Vector, b: Vector): number {
+  let dot = 0;
+  let aNorm = 0;
+  let bNorm = 0;
+  for (let i = 0; i < a.length; i += 1) {
+    dot += a[i] * b[i];
+    aNorm += a[i] * a[i];
+    bNorm += b[i] * b[i];
   }
-  return out;
-};
+  if (aNorm === 0 || bNorm === 0) return 0;
+  return dot / (Math.sqrt(aNorm) * Math.sqrt(bNorm));
+}
 
-const buildPrompt = (query: string, papers: ResearchPaper[]): string => {
-  const lines = papers.map((paper, idx) => {
-    const pid = `p${idx}`;
-    const title = truncate(paper.title || "(untitled)", 220);
-    const summary = paper.summary ? ` | ${truncate(paper.summary, 260)}` : "";
-    const meta = paper.year ? ` | ${paper.year}` : "";
-    return `- ${pid}${meta} | ${title}${summary}`;
-  });
+function normalize(v: Vector): Vector {
+  let norm = 0;
+  for (let i = 0; i < v.length; i += 1) norm += v[i] * v[i];
+  if (norm === 0) return v.slice();
+  const denom = Math.sqrt(norm);
+  return v.map((x) => x / denom);
+}
 
-  return [
-    `User query: "${query}"`,
-    "",
-    "Papers (the ids on the left are the only labels you may use):",
-    ...lines,
-    "",
-    "Cluster the papers into 3–7 distinct subtopics that meaningfully",
-    "organise them in the context of the query. Constraints:",
-    "1. Every paper id MUST appear in exactly one subtopic. No omissions, no duplicates.",
-    "2. Each subtopic label is 2–5 words, descriptive, and NOT a paraphrase of the query.",
-    "3. Avoid generic labels like 'Other Methods' or 'Misc'.",
-    "4. Prefer 4–6 clusters when there are 15+ papers.",
-    "",
-    "Respond with ONLY this JSON object, no commentary:",
-    '{ "subtopics": [{ "label": "...", "paperIds": ["p0", "p2", ...] }, ...] }',
-  ].join("\n");
-};
+class TitleVectorStore {
+  vocabulary: string[];
+  vectorsByPaperId: Map<string, Vector>;
 
-// Ensure every paper ends up in exactly one cluster, repairing missing or
-// duplicated assignments from the model.
-const repairAssignments = (
-  papers: ResearchPaper[],
-  rawSubtopics: RawSubtopic[],
-): { label: string; paperIds: string[] }[] => {
-  const cleaned: { label: string; paperIds: string[] }[] = rawSubtopics
-    .map((entry) => ({
-      label: sanitizeLabel(entry.label),
-      paperIds: sanitizeIds(entry.paperIds),
-    }))
-    .filter((entry) => entry.paperIds.length > 0);
-
-  if (cleaned.length === 0) return [];
-
-  const validIds = new Set(papers.map((_, idx) => `p${idx}`));
-  const seen = new Set<string>();
-  for (const cluster of cleaned) {
-    cluster.paperIds = cluster.paperIds.filter((pid) => {
-      if (!validIds.has(pid)) return false;
-      if (seen.has(pid)) return false;
-      seen.add(pid);
-      return true;
-    });
+  constructor(papers: ResearchPaper[]) {
+    const vocabSet = new Set<string>();
+    const tokenMap = new Map<string, string[]>();
+    for (const paper of papers) {
+      const tokens = tokenizeTitle(paper.title ?? "");
+      tokenMap.set(paper.id, tokens);
+      for (const token of tokens) vocabSet.add(token);
+    }
+    this.vocabulary = [...vocabSet].sort();
+    this.vectorsByPaperId = new Map();
+    for (const paper of papers) {
+      const tokens = tokenMap.get(paper.id) ?? [];
+      const freq = new Map<string, number>();
+      for (const token of tokens) freq.set(token, (freq.get(token) ?? 0) + 1);
+      const vector = this.vocabulary.map((token) => freq.get(token) ?? 0);
+      this.vectorsByPaperId.set(paper.id, normalize(vector));
+    }
   }
 
-  // Drop clusters that ended up empty after dedup.
-  const nonEmpty = cleaned.filter((c) => c.paperIds.length > 0);
-  if (nonEmpty.length === 0) return [];
+  getVector(paperId: string): Vector {
+    return this.vectorsByPaperId.get(paperId) ?? this.vocabulary.map(() => 0);
+  }
+}
 
-  // Any paper the model forgot goes into the smallest existing cluster
-  // (so we don't create a synthetic "leftovers" topic when the user
-  // explicitly wants every paper to fit somewhere).
-  const missing = [...validIds].filter((pid) => !seen.has(pid));
-  if (missing.length > 0) {
-    nonEmpty.sort((a, b) => a.paperIds.length - b.paperIds.length);
-    nonEmpty[0].paperIds.push(...missing);
+function kMeansCosine(vectors: Vector[], k: number, maxIterations = 25): number[] {
+  if (vectors.length === 0) return [];
+  const assignments = new Array<number>(vectors.length).fill(0);
+  const centroids: Vector[] = [];
+
+  for (let i = 0; i < k; i += 1) {
+    centroids.push(vectors[Math.min(i, vectors.length - 1)].slice());
   }
 
-  return nonEmpty;
-};
+  for (let iter = 0; iter < maxIterations; iter += 1) {
+    let changed = false;
 
-type OpenAIChatResponse = {
-  choices?: { message?: { content?: string } }[];
-  error?: { message?: string };
-};
+    for (let i = 0; i < vectors.length; i += 1) {
+      let bestCluster = 0;
+      let bestScore = -Infinity;
+      for (let c = 0; c < k; c += 1) {
+        const score = cosineSimilarity(vectors[i], centroids[c]);
+        if (score > bestScore) {
+          bestScore = score;
+          bestCluster = c;
+        }
+      }
+      if (assignments[i] !== bestCluster) {
+        assignments[i] = bestCluster;
+        changed = true;
+      }
+    }
 
-// Call OpenAI to cluster the given papers. Returns null when the API
-// key is missing or the request fails — callers fall back to the
-// heuristic clusterer.
-export async function clusterPapersWithOpenAI(
-  query: string,
+    const sums: Vector[] = centroids.map((c) => c.map(() => 0));
+    const counts = new Array<number>(k).fill(0);
+    for (let i = 0; i < vectors.length; i += 1) {
+      const cluster = assignments[i];
+      counts[cluster] += 1;
+      for (let d = 0; d < vectors[i].length; d += 1) sums[cluster][d] += vectors[i][d];
+    }
+    for (let c = 0; c < k; c += 1) {
+      if (counts[c] === 0) continue;
+      centroids[c] = normalize(sums[c].map((value) => value / counts[c]));
+    }
+
+    if (!changed) break;
+  }
+
+  return assignments;
+}
+
+function labelFromClusterTitles(titles: string[]): string {
+  const counts = new Map<string, number>();
+  for (const title of titles) {
+    const uniqueTokens = new Set(tokenizeTitle(title));
+    for (const token of uniqueTokens) counts.set(token, (counts.get(token) ?? 0) + 1);
+  }
+  const top = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([t]) => t);
+  if (top.length === 0) return "Related Work";
+  return top.map((w) => (w.length > 2 ? `${w[0].toUpperCase()}${w.slice(1)}` : w)).join(" ");
+}
+
+export async function clusterPapersWithTitleVectors(
+  _query: string,
   seeds: ResearchPaper[],
   citations: ResearchPaper[],
 ): Promise<ClusterInfo | null> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return null;
-
   const allPapers = [...seeds, ...citations];
   if (allPapers.length === 0) return null;
 
-  const prompt = buildPrompt(query, allPapers);
-  const model = process.env.OPENAI_CLUSTER_MODEL || DEFAULT_MODEL;
+  const rawK = computeClusterCount(allPapers.length);
+  const k = Math.min(rawK, seeds.length || 1);
+  const vectorStore = new TitleVectorStore(allPapers);
+  const vectors = allPapers.map((paper) => vectorStore.getVector(paper.id));
+  const assignments = kMeansCosine(vectors, k);
 
-  let response: Response;
-  try {
-    response = await fetch(OPENAI_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are an expert research librarian. You cluster academic papers into coherent subtopics and return strict JSON only.",
-          },
-          { role: "user", content: prompt },
-        ],
-        response_format: { type: "json_object" },
-        temperature: 0.2,
-      }),
-    });
-  } catch (err) {
-    console.error("[openai cluster] network error:", err);
-    return null;
+  const buckets = new Map<number, ResearchPaper[]>();
+  for (let i = 0; i < allPapers.length; i += 1) {
+    const idx = assignments[i] ?? 0;
+    const list = buckets.get(idx) ?? [];
+    list.push(allPapers[i]);
+    buckets.set(idx, list);
   }
 
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "<no body>");
-    console.error(
-      "[openai cluster] HTTP",
-      response.status,
-      response.statusText,
-      detail,
-    );
-    return null;
-  }
+  const sortedClusters = [...buckets.entries()].sort(
+    (a, b) => b[1].length - a[1].length,
+  );
+  const oldToNew = new Map<number, number>();
+  sortedClusters.forEach(([old], next) => oldToNew.set(old, next));
 
-  let payload: OpenAIChatResponse;
-  try {
-    payload = (await response.json()) as OpenAIChatResponse;
-  } catch (err) {
-    console.error("[openai cluster] JSON read failed:", err);
-    return null;
-  }
-
-  const content = payload.choices?.[0]?.message?.content;
-  if (!content) {
-    console.error("[openai cluster] empty response", payload);
-    return null;
-  }
-
-  let parsed: { subtopics?: RawSubtopic[] };
-  try {
-    parsed = JSON.parse(content) as { subtopics?: RawSubtopic[] };
-  } catch (err) {
-    console.error("[openai cluster] could not parse JSON:", err, content);
-    return null;
-  }
-
-  const repaired = repairAssignments(allPapers, parsed.subtopics ?? []);
-  if (repaired.length === 0) {
-    console.error("[openai cluster] no usable clusters in response", parsed);
-    return null;
-  }
-
-  // Sort clusters largest-first so the most "central" topic gets the
-  // first (most saturated) palette colour.
-  repaired.sort((a, b) => b.paperIds.length - a.paperIds.length);
-
-  const seedIds = new Set(seeds.map((s) => s.id));
+  const seedIdSet = new Set(seeds.map((s) => s.id));
   const colorBySeed = new Map<string, string>();
   const colorByChild = new Map<string, string>();
   const clusterIdxBySeed = new Map<string, number>();
   const clusterIdxByChild = new Map<string, number>();
   const subtopics: Subtopic[] = [];
 
-  repaired.forEach((cluster, clusterIdx) => {
+  for (const [oldIdx, papers] of sortedClusters) {
+    const clusterIdx = oldToNew.get(oldIdx) ?? 0;
     const color = SEED_COLORS[clusterIdx % SEED_COLORS.length];
-    const memberSeedIds: string[] = [];
-    for (const pid of cluster.paperIds) {
-      const numeric = Number(pid.slice(1));
-      if (!Number.isFinite(numeric)) continue;
-      const paper = allPapers[numeric];
-      if (!paper) continue;
-      if (seedIds.has(paper.id)) {
+    const clusterSeeds = papers.filter((paper) => seedIdSet.has(paper.id));
+    const label = labelFromClusterTitles(papers.map((paper) => paper.title ?? ""));
+
+    for (const paper of papers) {
+      if (seedIdSet.has(paper.id)) {
         colorBySeed.set(paper.id, color);
         clusterIdxBySeed.set(paper.id, clusterIdx);
-        memberSeedIds.push(paper.id);
       } else {
         colorByChild.set(paper.id, color);
         clusterIdxByChild.set(paper.id, clusterIdx);
       }
     }
-    subtopics.push({ color, label: cluster.label, seedIds: memberSeedIds });
-  });
 
-  // Defensive: any paper that somehow didn't end up in a cluster falls
-  // back to the orphan colour so the graph still renders.
+    subtopics.push({
+      color,
+      label,
+      seedIds: clusterSeeds.map((paper) => paper.id),
+    });
+  }
+
   for (const seed of seeds) {
     if (!colorBySeed.has(seed.id)) {
       colorBySeed.set(seed.id, ORPHAN_COLOR);
       clusterIdxBySeed.set(seed.id, Number.MAX_SAFE_INTEGER);
     }
   }
-  for (const child of citations) {
-    if (!colorByChild.has(child.id)) {
-      colorByChild.set(child.id, ORPHAN_COLOR);
-      clusterIdxByChild.set(child.id, Number.MAX_SAFE_INTEGER);
+  for (const citation of citations) {
+    if (!colorByChild.has(citation.id)) {
+      colorByChild.set(citation.id, ORPHAN_COLOR);
+      clusterIdxByChild.set(citation.id, Number.MAX_SAFE_INTEGER);
     }
   }
 
