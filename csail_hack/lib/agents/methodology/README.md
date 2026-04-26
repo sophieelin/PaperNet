@@ -25,8 +25,8 @@ Extend this type as needed (e.g. `metrics: Record<string, number>`,
 
 ## Suggested approach
 
-1. If `fullText` is missing, fetch and parse the PDF (or LaTeX source) using
-   the `arxivId`.
+1. If `fullText` is missing, rely on the shared data layer to fetch provider
+   HTML first, then parse the provider PDF as a fallback.
 2. Section-aware extraction: pull the Method/Approach, Results/Experiments,
    and Conclusion/Future Work sections.
 3. Summarize each section with an LLM into 3–6 sentences.

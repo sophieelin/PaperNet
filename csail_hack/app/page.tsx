@@ -65,6 +65,12 @@ const EXAMPLES = [
   "mechanistic interpretability",
 ];
 
+const sourceLabel = (paper: ResearchPaper) => {
+  if (paper.source === "arxiv") return "arXiv paper";
+  if (paper.source === "acm") return "ACM DL paper";
+  return "Cited paper";
+};
+
 // These must match SEED_NODE_SIZE / CITATION_NODE_SIZE in lib/graph.ts so
 // dagre reserves the right amount of layout space for them.
 const SEED_DIAMETER = 132;
@@ -241,7 +247,7 @@ function DetailPanel({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">
-            {paper.source === "arxiv" ? "arXiv paper" : "Cited paper"}
+            {sourceLabel(paper)}
             {paper.year ? ` · ${paper.year}` : ""}
           </div>
           <h2 className="mt-1 text-base font-semibold leading-snug text-slate-50">
@@ -400,7 +406,7 @@ function StatusPill({
   statusBusy: boolean;
 }) {
   let dot = "bg-slate-600";
-  let label = statusText || "Idle";
+  const label = statusText || "Idle";
   if (loading && phase === "idle") {
     dot = "bg-amber-400";
   } else if (loading && phase === "seeds") {
@@ -516,6 +522,7 @@ export default function Home() {
     useState<ReactFlowInstance | null>(null);
   const [selected, setSelected] = useState<ResearchPaper | null>(null);
   const [selectedCard, setSelectedCard] = useState<SummaryCardData | null>(null);
+  const queryInFlightRef = useRef(false);
   const [summaryCardsByPaperId, setSummaryCardsByPaperId] = useState<
     Record<string, SummaryCardData>
   >({});
@@ -568,16 +575,19 @@ export default function Home() {
   // warning and prevents subtle node re-mounts on each render.
   const nodeTypes = useMemo(() => ({ paper: PaperNode, halo: HaloNode }), []);
 
-  const subtopics = graph.subtopics ?? [];
+  const subtopics = useMemo(() => graph.subtopics ?? [], [graph.subtopics]);
   // Halos are decoration, not real graph members — exclude them from
   // status counts and "empty graph" detection.
   const paperNodeCount = useMemo(
     () => graph.nodes.filter((n) => n.type !== "halo").length,
     [graph.nodes],
   );
+  const hasSemanticEdges = semanticEdges.length > 0;
+  const effectiveEdgeViewMode =
+    edgeViewMode === "semantic" && hasSemanticEdges ? "semantic" : "citation";
 
   const activeEdges =
-    edgeViewMode === "semantic" && semanticEdges.length > 0
+    effectiveEdgeViewMode === "semantic"
       ? semanticEdges
       : graph.edges;
 
@@ -672,9 +682,10 @@ export default function Home() {
 
   const runQuery = async (raw: string) => {
     const nextQuery = raw.trim();
-    if (!nextQuery || loading) return;
+    if (!nextQuery || loading || queryInFlightRef.current) return;
+    queryInFlightRef.current = true;
     setLoading(true);
-    setStatusText("Searching arXiv...");
+    setStatusText("Searching Semantic Scholar...");
     setError("");
     setSelected(null);
     setSelectedCard(null);
@@ -700,7 +711,7 @@ export default function Home() {
       setActiveQuery(nextQuery);
       setGraph(seedsData.graph);
       setPhase("seeds");
-      setStatusText("Fetching citations...");
+      setStatusText("Fetching cited papers...");
 
       const citationsRes = await fetch("/api/research/citations", {
         method: "POST",
@@ -713,7 +724,7 @@ export default function Home() {
       };
       if (!citationsRes.ok)
         throw new Error(
-          citationsData.error ?? "Failed to generate citations",
+          citationsData.error ?? "Failed to fetch cited papers",
         );
       setGraph(citationsData.graph);
       setPhase("citations");
@@ -761,6 +772,7 @@ export default function Home() {
       setError(err instanceof Error ? err.message : "Unexpected error");
       setStatusText("Failed");
     } finally {
+      queryInFlightRef.current = false;
       setLoading(false);
     }
   };
@@ -876,43 +888,33 @@ export default function Home() {
     }
   }, []);
 
-  const loadExistingRun = useCallback(
-    async (nextRunId: string) => {
-      setError("");
-      setSelected(null);
-      setSelectedCard(null);
-      setRunsMenuOpen(false);
-      try {
-        const response = await fetch(
-          `/api/research/runs?runId=${encodeURIComponent(nextRunId)}`,
-        );
-        const data = (await response.json()) as RunLoadResponse;
-        if (!response.ok) throw new Error(data.error ?? "Failed to load run");
-        setRunId(data.runId);
-        setActiveQuery(data.query ?? "");
-        setQuery(data.query ?? "");
-        setGraph(data.graph);
-        setPhase("citations");
-        setSummaryStatus("");
-        setStatusText("Complete");
-        setEdgeViewMode("citation");
-        void loadSummaryCards(nextRunId);
-        void loadSemanticEdges(nextRunId);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to load run");
-      }
-    },
-  [loadSemanticEdges, loadSummaryCards],
-  );
+  const loadExistingRun = async (nextRunId: string) => {
+    setError("");
+    setSelected(null);
+    setSelectedCard(null);
+    setRunsMenuOpen(false);
+    try {
+      const response = await fetch(
+        `/api/research/runs?runId=${encodeURIComponent(nextRunId)}`,
+      );
+      const data = (await response.json()) as RunLoadResponse;
+      if (!response.ok) throw new Error(data.error ?? "Failed to load run");
+      setRunId(data.runId);
+      setActiveQuery(data.query ?? "");
+      setQuery(data.query ?? "");
+      setGraph(data.graph);
+      setPhase("citations");
+      setSummaryStatus("");
+      setStatusText("Complete");
+      setEdgeViewMode("citation");
+      void loadSummaryCards(nextRunId);
+      void loadSemanticEdges(nextRunId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load run");
+    }
+  };
 
   const showEmptyState = !loading && paperNodeCount === 0;
-  const hasSemanticEdges = semanticEdges.length > 0;
-
-  useEffect(() => {
-    if (!hasSemanticEdges && edgeViewMode === "semantic") {
-      setEdgeViewMode("citation");
-    }
-  }, [edgeViewMode, hasSemanticEdges]);
 
   return (
     <main className="relative h-screen w-screen overflow-hidden bg-slate-950 text-slate-100">
@@ -1033,7 +1035,7 @@ export default function Home() {
         onHover={setHoveredCluster}
         collapsed={subtopicsCollapsed}
         onToggleCollapsed={() => setSubtopicsCollapsed((v) => !v)}
-        showSemanticLegend={edgeViewMode === "semantic"}
+        showSemanticLegend={effectiveEdgeViewMode === "semantic"}
       />
 
       {!showEmptyState && (
@@ -1065,7 +1067,7 @@ export default function Home() {
               Map a research topic
             </div>
             <div className="mt-2 text-sm text-slate-500">
-              Recent arXiv papers + their most-cited references, in one graph.
+              arXiv and ACM papers connected by high-impact citations.
             </div>
             <div className="pointer-events-auto mt-6 flex flex-wrap justify-center gap-2">
               {EXAMPLES.map((example) => (
@@ -1156,12 +1158,12 @@ export default function Home() {
           </span>
           {loading && phase === "idle" && (
             <span className="shrink-0 text-slate-500">
-              Stage 1 of 2 · arXiv
+              Stage 1 of 2 · Semantic Scholar
             </span>
           )}
           {loading && phase === "seeds" && (
             <span className="shrink-0 text-slate-500">
-              Stage 2 of 2 · Semantic Scholar + arXiv
+              Stage 2 of 2 · Semantic Scholar citations
             </span>
           )}
           {!loading && summaryStatus && (
@@ -1191,7 +1193,7 @@ export default function Home() {
               type="button"
               onClick={() => setEdgeViewMode("citation")}
               className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
-                edgeViewMode === "citation"
+                effectiveEdgeViewMode === "citation"
                   ? "bg-slate-100 text-slate-900"
                   : "text-slate-300 hover:bg-slate-800"
               }`}
@@ -1203,7 +1205,7 @@ export default function Home() {
               onClick={() => hasSemanticEdges && setEdgeViewMode("semantic")}
               disabled={!hasSemanticEdges}
               className={`rounded-lg px-3 py-1.5 text-xs font-medium transition ${
-                edgeViewMode === "semantic"
+                effectiveEdgeViewMode === "semantic"
                   ? "bg-indigo-400 text-slate-950"
                   : "text-slate-300 hover:bg-slate-800"
               } disabled:cursor-not-allowed disabled:opacity-40`}

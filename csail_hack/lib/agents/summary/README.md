@@ -12,7 +12,7 @@ Goal: produce two pieces of natural-language text about a paper.
 `AgentInput` from `../types.ts`:
 
 - `paper`: `ResearchPaper` — title, authors, year, abstract (`summary`),
-  arXiv id, etc.
+  source provider, arXiv id/ACM DOI, etc.
 - `fullText` (optional): full paper text if/when the data layer provides it.
 
 ## Output

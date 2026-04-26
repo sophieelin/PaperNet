@@ -25,6 +25,14 @@ const toArxivPdfUrl = (url: string) =>
     .replace("https://arxiv.org/abs/", "https://arxiv.org/pdf/")
     .replace(/(?<!\.pdf)$/i, ".pdf");
 
+const normalizeDoi = (doi: string) =>
+  doi.trim().replace(/^https?:\/\/doi\.org\//i, "").replace(/^doi:/i, "").toLowerCase();
+
+const toAcmHtmlUrl = (doi: string) => `https://dl.acm.org/doi/fullHtml/${normalizeDoi(doi)}`;
+
+const ACM_CONTENT_TIMEOUT_MS = 4500;
+const ARXIV_CONTENT_TIMEOUT_MS = 12000;
+
 const safeSlug = (value: string) =>
   value
     .toLowerCase()
@@ -133,10 +141,28 @@ async function extractPdfTextRobust(pdfBytes: Buffer, pdfPath: string, outDir: s
   throw new Error(failures.join(" | "));
 }
 
-export async function fetchArxivHtmlContent(arxivUrl: string): Promise<string> {
-  const response = await fetch(toArxivHtmlUrl(arxivUrl), { cache: "no-store" });
-  if (!response.ok) throw new Error(`Failed to fetch arXiv HTML (${response.status})`);
+async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, {
+      headers: { "User-Agent": "csail-hack-research-graph/1.0" },
+      cache: "no-store",
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchHtmlContent(htmlUrl: string, timeoutMs = ARXIV_CONTENT_TIMEOUT_MS): Promise<string> {
+  const response = await fetchWithTimeout(htmlUrl, timeoutMs);
+  if (!response.ok) throw new Error(`Failed to fetch HTML (${response.status})`);
   return response.text();
+}
+
+export async function fetchArxivHtmlContent(arxivUrl: string): Promise<string> {
+  return fetchHtmlContent(toArxivHtmlUrl(arxivUrl));
 }
 
 async function resolveQueryFolder(query?: string, runId?: string): Promise<string> {
@@ -162,13 +188,17 @@ async function resolveQueryFolder(query?: string, runId?: string): Promise<strin
   return withTimes[0].full;
 }
 
-async function fetchArxivPdfFallbackContent(arxivUrl: string, query?: string, runId?: string): Promise<string> {
-  const pdfUrl = toArxivPdfUrl(arxivUrl);
-  const pdfResponse = await fetch(pdfUrl, { cache: "no-store" });
-  if (!pdfResponse.ok) throw new Error(`Failed to fetch arXiv PDF (${pdfResponse.status})`);
+async function fetchPdfFallbackContent(
+  pdfUrl: string,
+  paperId: string,
+  query?: string,
+  runId?: string,
+): Promise<string> {
+  const pdfResponse = await fetchWithTimeout(pdfUrl, ARXIV_CONTENT_TIMEOUT_MS);
+  if (!pdfResponse.ok) throw new Error(`Failed to fetch PDF (${pdfResponse.status})`);
 
   const pdfBytes = Buffer.from(await pdfResponse.arrayBuffer());
-  const id = safeSlug(arxivUrl.split("/").pop() ?? "paper");
+  const id = safeSlug(paperId || pdfUrl.split("/").pop() || "paper");
   const queryDir = await resolveQueryFolder(query, runId);
   const outDir = path.join(queryDir, `pdf-${id}-${Date.now()}`);
   await mkdir(outDir, { recursive: true });
@@ -176,17 +206,41 @@ async function fetchArxivPdfFallbackContent(arxivUrl: string, query?: string, ru
   const textPath = path.join(outDir, "text.txt");
   await writeFile(pdfPath, pdfBytes);
   const text = await extractPdfTextRobust(pdfBytes, pdfPath, outDir);
-  if (!text.trim()) throw new Error(`PDF text extraction failed for ${arxivUrl}`);
+  if (!text.trim()) throw new Error(`PDF text extraction failed for ${pdfUrl}`);
   await writeFile(textPath, text, "utf8");
   return readFile(textPath, "utf8");
 }
 
-async function fetchArxivContentPreferHtml(arxivUrl: string, query?: string, runId?: string): Promise<string> {
-  try {
-    return await fetchArxivHtmlContent(arxivUrl);
-  } catch {
-    return fetchArxivPdfFallbackContent(arxivUrl, query, runId);
+async function fetchPaperContentPreferHtml(input: AgentInput): Promise<string | undefined> {
+  const { paper, query, runId } = input;
+  if (paper.source === "acm") {
+    const htmlUrl = paper.htmlUrl ?? (paper.doi ? toAcmHtmlUrl(paper.doi) : undefined);
+    if (htmlUrl) {
+      try {
+        return await fetchHtmlContent(htmlUrl, ACM_CONTENT_TIMEOUT_MS);
+      } catch {
+        return paper.summary;
+      }
+    }
+    return paper.summary;
   }
+
+  const htmlUrl =
+    paper.htmlUrl ??
+    (paper.source === "arxiv" && paper.url ? toArxivHtmlUrl(paper.url) : undefined);
+  if (htmlUrl) {
+    try {
+      return await fetchHtmlContent(htmlUrl);
+    } catch {
+      // Fall through to PDF extraction when a provider has no usable HTML.
+    }
+  }
+
+  const pdfUrl =
+    paper.pdfUrl ??
+    (paper.source === "arxiv" && paper.url ? toArxivPdfUrl(paper.url) : undefined);
+  if (!pdfUrl) return undefined;
+  return fetchPdfFallbackContent(pdfUrl, paper.id, query, runId);
 }
 
 /**
@@ -197,14 +251,22 @@ async function fetchArxivContentPreferHtml(arxivUrl: string, query?: string, run
  */
 export async function buildSummaryCard(input: AgentInput) {
   const fullText =
-    input.fullText ??
-    (input.paper.url ? await fetchArxivContentPreferHtml(input.paper.url, input.query, input.runId) : undefined);
+    input.fullText ?? (await fetchPaperContentPreferHtml(input).catch(() => undefined));
   const enrichedInput = fullText ? { ...input, fullText } : input;
-  const [summary, figures, methodology] = await Promise.all([
+  const [summaryResult, figuresResult, methodologyResult] = await Promise.allSettled([
     runSummaryAgent(enrichedInput),
     runFiguresAgent(enrichedInput),
     runMethodologyAgent(enrichedInput),
   ]);
+  const summary =
+    summaryResult.status === "fulfilled"
+      ? summaryResult.value
+      : { oneLine: input.paper.title, paragraph: input.paper.summary ?? "" };
+  const figures = figuresResult.status === "fulfilled" ? figuresResult.value : { figures: [] };
+  const methodology =
+    methodologyResult.status === "fulfilled"
+      ? methodologyResult.value
+      : { methodology: "", results: "", futureWork: "" };
   return { summary, figures, methodology };
 }
 

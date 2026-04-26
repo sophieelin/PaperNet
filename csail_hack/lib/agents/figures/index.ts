@@ -90,14 +90,11 @@ const absoluteUrl = (url: string, paper?: AgentInput["paper"]) => {
     const raw = url.trim();
     if (/^https?:\/\//i.test(raw)) return normalizeArxivFigureUrl(raw);
 
-    const arxivId = paper?.arxivId ?? "";
-    if (raw.startsWith("/")) {
-      return normalizeArxivFigureUrl(`https://arxiv.org${raw}`);
-    }
-    if (arxivId) {
-      return normalizeArxivFigureUrl(`https://arxiv.org/html/${arxivId}/${raw}`);
-    }
-    return normalizeArxivFigureUrl(`https://arxiv.org/html/${raw}`);
+    const baseUrl =
+      paper?.htmlUrl ??
+      paper?.url ??
+      (paper?.arxivId ? `https://arxiv.org/html/${paper.arxivId}/` : "https://arxiv.org/");
+    return normalizeArxivFigureUrl(new URL(raw, baseUrl).toString());
   } catch {
     return normalizeArxivFigureUrl(url);
   }

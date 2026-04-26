@@ -16,10 +16,7 @@ export async function POST(request: Request) {
     const meta = await readRunData<{ query?: string }>(runId, "query.json").catch(
       () => ({} as { query?: string }),
     );
-    // 5 citations per seed gives the clusterer enough bibliographic-
-    // coupling material to find shared niche references, while staying
-    // visually manageable with dagre layout.
-    const { selections, dedupedChildren } = await fetchTopCitationsForSeeds(seeds, 5);
+    const { selections, dedupedChildren } = await fetchTopCitationsForSeeds(seeds, 3);
 
     // Try the LLM-driven clusterer first when an API key is configured.
     // It produces sharper topic labels and forces every paper into
@@ -62,4 +59,3 @@ export async function POST(request: Request) {
     );
   }
 }
-

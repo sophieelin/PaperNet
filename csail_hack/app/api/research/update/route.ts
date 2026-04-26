@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server";
 import type { Edge, Node } from "@xyflow/react";
 import { buildSummaryCard } from "@/lib/agents";
-import { searchRecentArxivPapers } from "@/lib/arxiv";
 import { buildCitationGraph } from "@/lib/graph";
 import { clusterPapersWithOpenAI } from "@/lib/openaiClustering";
 import type { GraphNodeData, ResearchPaper } from "@/lib/papers";
-import { fetchTopCitationsForSeeds } from "@/lib/semanticScholar";
+import { fetchTopCitationsForSeeds, searchSupportedPapers } from "@/lib/semanticScholar";
 import { readRunData, writeRunData } from "@/lib/storage";
 
 const UPDATE_INTERVAL_MS = 12 * 60 * 60 * 1000;
+const SUMMARY_CARD_CONCURRENCY = 3;
 
 type QueryMeta = {
   query?: string;
@@ -44,6 +44,34 @@ function hasPaperId(paper: unknown): paper is GraphNodeData["paper"] & { id: str
     typeof (paper as { id?: unknown }).id === "string" &&
     (paper as { id: string }).id.trim().length > 0
   );
+}
+
+const paperPriority = (paper: GraphNodeData["paper"]) => {
+  if (paper.source === "arxiv") return 0;
+  if (paper.source === "acm") return 1;
+  return 2;
+};
+
+async function buildCardsInProviderOrder(
+  papers: GraphNodeData["paper"][],
+  query: string,
+  runId: string,
+) {
+  const ordered = [...papers].sort(
+    (a, b) => paperPriority(a) - paperPriority(b) || a.title.localeCompare(b.title),
+  );
+  const cards: SummaryCardFile = [];
+  for (let index = 0; index < ordered.length; index += SUMMARY_CARD_CONCURRENCY) {
+    const batch = ordered.slice(index, index + SUMMARY_CARD_CONCURRENCY);
+    const results = await Promise.all(
+      batch.map(async (paper) => ({
+        paperId: paper.id,
+        card: await buildSummaryCard({ paper, query, runId }),
+      })),
+    );
+    cards.push(...results);
+  }
+  return cards;
 }
 
 async function generateSemanticEdges(cards: SummaryCardFile) {
@@ -157,7 +185,7 @@ export async function POST(request: Request) {
     }
 
     const currentSeeds = await readRunData<ResearchPaper[]>(runId, "seeds.json").catch(() => []);
-    const latestSeeds = await searchRecentArxivPapers(query, 20, 365);
+    const latestSeeds = await searchSupportedPapers(query, 20);
     const existingIds = new Set(currentSeeds.map((s) => s.id));
     const newSeeds = latestSeeds.filter((s) => !existingIds.has(s.id));
     if (newSeeds.length === 0) {
@@ -170,7 +198,7 @@ export async function POST(request: Request) {
     }
 
     const mergedSeeds = [...newSeeds, ...currentSeeds];
-    const { selections, dedupedChildren } = await fetchTopCitationsForSeeds(mergedSeeds, 5);
+    const { selections, dedupedChildren } = await fetchTopCitationsForSeeds(mergedSeeds, 3);
     const llmClusters = await clusterPapersWithOpenAI(query, mergedSeeds, dedupedChildren);
     const graph = buildCitationGraph(
       mergedSeeds,
@@ -192,12 +220,7 @@ export async function POST(request: Request) {
       if (!hasPaperId(paper)) continue;
       byId.set(paper.id, paper);
     }
-    const cards = await Promise.all(
-      [...byId.values()].map(async (paper) => ({
-        paperId: paper.id,
-        card: await buildSummaryCard({ paper, query, runId }),
-      })),
-    );
+    const cards = await buildCardsInProviderOrder([...byId.values()], query, runId);
     await writeRunData(runId, "summary-cards.json", cards);
 
     let semanticEdgeCount = 0;
@@ -232,4 +255,3 @@ export async function POST(request: Request) {
     );
   }
 }
-

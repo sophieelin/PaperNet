@@ -7,7 +7,7 @@ a paper, ranked by how well they communicate the headline result.
 
 `AgentInput` from `../types.ts`:
 
-- `paper`: `ResearchPaper` (with `arxivId` you can fetch the PDF / source).
+- `paper`: `ResearchPaper` (with provider URLs such as `htmlUrl`, `pdfUrl`, `arxivId`, or `doi`).
 - `fullText` (optional).
 
 ## Output
@@ -29,12 +29,11 @@ Extend this type as needed (e.g. `figureNumber`, `pageNumber`,
 
 ## Suggested approach
 
-1. Pull the PDF (or LaTeX source) for the arXiv id.
-2. Extract figures + captions (e.g. `pdffigures2`, `pdfplumber`,
-   `unstructured`, or a vision LLM pass).
-3. Score them (caption length, mentions in abstract/conclusion, "Figure 1"
-   bias, etc.) and return the top 3–5.
-4. Host or inline the chosen images.
+1. Use provider HTML when available so `<img>` links can be returned directly.
+2. Ask the OpenAI figure selector to choose the single image that best
+   summarizes the paper.
+3. If only plain body text/PDF text is available, return no figure because
+   there is no reliable image URL to show.
 
 ## Notes
 

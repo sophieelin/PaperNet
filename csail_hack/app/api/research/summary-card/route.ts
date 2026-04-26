@@ -20,6 +20,8 @@ type SemanticEdgeRecord = {
   reason?: string;
 };
 
+const SUMMARY_CARD_CONCURRENCY = 3;
+
 const EDGE_STYLES: Record<SemanticEdgeRecord["relationType"], { stroke: string; dash?: string }> = {
   "Builds On": { stroke: "#22c55e" },
   "Similar Approach": { stroke: "#60a5fa", dash: "4 2" },
@@ -131,6 +133,34 @@ async function generateSemanticEdges(cards: SummaryCardFile) {
     }));
 }
 
+const paperPriority = (paper: GraphNodeData["paper"]) => {
+  if (paper.source === "arxiv") return 0;
+  if (paper.source === "acm") return 1;
+  return 2;
+};
+
+async function buildCardsInProviderOrder(
+  papers: GraphNodeData["paper"][],
+  query: string | undefined,
+  runId: string,
+) {
+  const ordered = [...papers].sort(
+    (a, b) => paperPriority(a) - paperPriority(b) || a.title.localeCompare(b.title),
+  );
+  const cards: SummaryCardFile = [];
+  for (let index = 0; index < ordered.length; index += SUMMARY_CARD_CONCURRENCY) {
+    const batch = ordered.slice(index, index + SUMMARY_CARD_CONCURRENCY);
+    const results = await Promise.all(
+      batch.map(async (paper) => ({
+        paperId: paper.id,
+        card: await buildSummaryCard({ paper, query, runId }),
+      })),
+    );
+    cards.push(...results);
+  }
+  return cards;
+}
+
 function hasPaperId(
   paper: unknown,
 ): paper is GraphNodeData["paper"] & { id: string } {
@@ -156,13 +186,7 @@ export async function POST(request: Request) {
       byId.set(paper.id, paper);
     }
     const papers = [...byId.values()];
-
-    const cards = await Promise.all(
-      papers.map(async (paper) => ({
-        paperId: paper.id,
-        card: await buildSummaryCard({ paper, query, runId }),
-      })),
-    );
+    const cards = await buildCardsInProviderOrder(papers, query, runId);
 
     await writeRunData(runId, "summary-cards.json", cards);
     let semanticEdges: Edge[] = [];
@@ -202,4 +226,3 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
-

@@ -1,4 +1,4 @@
-export type PaperSource = "arxiv" | "semantic-scholar";
+export type PaperSource = "arxiv" | "acm" | "semantic-scholar";
 
 export type ResearchPaper = {
   id: string;
@@ -9,7 +9,11 @@ export type ResearchPaper = {
   year?: number;
   published?: string;
   url?: string;
+  htmlUrl?: string;
+  pdfUrl?: string;
   arxivId?: string;
+  doi?: string;
+  s2PaperId?: string;
   citationCount?: number;
   influentialCitationCount?: number;
 };
@@ -45,4 +49,3 @@ export type Subtopic = {
   label: string;
   seedIds: string[];
 };
-
