@@ -275,7 +275,7 @@ function DetailPanel({
             {paper.year ? ` · ${paper.year}` : ""}
           </div>
           <h2
-            className="font-serif mt-2 text-[22px] leading-[1.2] tracking-tight"
+            className="font-serif mt-2 text-[22px] font-semibold leading-[1.2] tracking-tight"
             style={{ color: "var(--text)" }}
           >
             {title}
@@ -305,7 +305,7 @@ function DetailPanel({
       <div className="flex flex-1 flex-col gap-6 px-7 pb-8 pt-6">
         {paper.authors.length > 0 && (
           <p
-            className="font-serif text-[13px] italic leading-relaxed"
+            className="text-[13px] italic leading-relaxed"
             style={{ color: "var(--text-muted)" }}
           >
             {paper.authors.slice(0, 6).join(", ")}
@@ -325,7 +325,7 @@ function DetailPanel({
             {paper.citationCount != null && (
               <span>
                 <span
-                  className="font-serif tabular-nums"
+                  className="tabular-nums"
                   style={{ color: "var(--text)", fontSize: 14 }}
                 >
                   {paper.citationCount.toLocaleString()}
@@ -337,7 +337,7 @@ function DetailPanel({
               paper.influentialCitationCount > 0 && (
                 <span>
                   <span
-                    className="font-serif tabular-nums"
+                    className="tabular-nums"
                     style={{ color: "var(--accent)", fontSize: 14 }}
                   >
                     {paper.influentialCitationCount}
@@ -392,7 +392,7 @@ function DetailPanel({
                       {figure.caption && (
                         <p style={{ color: "var(--text)" }}>
                           <span
-                            className="font-serif italic mr-1"
+                            className="mr-1 italic"
                             style={{ color: "var(--text-muted)" }}
                           >
                             Fig. {index + 1}.
@@ -561,7 +561,7 @@ function Section({
 }
 
 // Top masthead — replaces the previous floating "PaperNet" status pill with
-// a thin hairline bar that runs across the top of the canvas. The serif
+// a thin hairline bar that runs across the top of the canvas. The Playfair
 // wordmark and the eyebrow stat row read more like a publication than a
 // dashboard, which was the request: "looks AI-generated".
 function Masthead({
@@ -632,7 +632,7 @@ function Masthead({
         {activeQuery && (
           <span
             className="max-w-[28ch] truncate text-[12px] font-medium"
-            style={{ color: "var(--text-muted)", fontFamily: "var(--font-sans-stack)" }}
+            style={{ color: "var(--text-muted)" }}
             title={activeQuery}
           >
             &ldquo;{activeQuery}&rdquo;
@@ -667,7 +667,7 @@ function Stat({ label, value }: { label: string; value: number }) {
     <span className="inline-flex items-baseline gap-1.5">
       <span
         className="text-[14px] font-medium tabular-nums"
-        style={{ color: "var(--text)", fontFamily: "var(--font-sans-stack)" }}
+        style={{ color: "var(--text)" }}
       >
         {value}
       </span>
@@ -1306,18 +1306,7 @@ export default function Home() {
             borderRadius: 4,
           }}
         >
-          <div
-            className="px-3 pb-1.5 pt-2"
-            style={{
-              color: "var(--text-faint)",
-              fontFamily: "var(--font-mono-stack)",
-              fontSize: 10,
-              letterSpacing: "0.18em",
-              textTransform: "uppercase",
-            }}
-          >
-            Previous Runs
-          </div>
+          <div className="label-eyebrow px-3 pb-1.5 pt-2">Previous Runs</div>
           {loadingRuns ? (
             <div className="px-3 py-2" style={{ color: "var(--text-muted)" }}>
               Loading...
@@ -1414,7 +1403,6 @@ export default function Home() {
         <form
           onSubmit={onSubmit}
           className="search-shell pointer-events-auto mx-auto flex w-full max-w-2xl min-h-[52px] items-center gap-1.5 pl-4 pr-1.5"
-          style={{ fontFamily: "var(--font-sans-stack)" }}
         >
           <span
             className="shrink-0"
@@ -1441,7 +1429,7 @@ export default function Home() {
             placeholder="Search papers and topics…"
             disabled={loading}
             className="min-w-0 flex-1 bg-transparent py-2.5 pl-1 pr-1 text-[14px] leading-tight outline-none placeholder:text-[color:var(--text-faint)] disabled:opacity-60"
-            style={{ color: "var(--text)", fontFamily: "var(--font-sans-stack)" }}
+            style={{ color: "var(--text)" }}
           />
           {query && !loading && (
             <button
@@ -1472,7 +1460,6 @@ export default function Home() {
               background: "var(--accent)",
               color: "#1a1207",
               fontWeight: 600,
-              fontFamily: "var(--font-sans-stack)",
             }}
           >
             {loading ? (
@@ -1494,7 +1481,7 @@ export default function Home() {
 
         <div
           className="pointer-events-none mx-auto mt-2.5 flex max-w-2xl items-center justify-between gap-3 px-2 text-[11px] leading-relaxed"
-          style={{ color: "var(--text-faint)", fontFamily: "var(--font-sans-stack)" }}
+          style={{ color: "var(--text-faint)" }}
         >
           <span className="truncate">
             {error ? (
@@ -1605,17 +1592,18 @@ export default function Home() {
               <div>
                 <div className="label-eyebrow mb-2">Synthesis</div>
                 <h2
-                  className="font-serif text-[28px] leading-tight tracking-tight"
+                  className="font-serif text-[28px] font-semibold leading-tight tracking-tight"
                   style={{ color: "var(--text)" }}
                 >
-                  Where the field has been&mdash;and where it might go next.
+                  Recurrent themes and prospective directions.
                 </h2>
                 <p
                   className="mt-2 max-w-prose text-[13px] leading-relaxed"
                   style={{ color: "var(--text-muted)" }}
                 >
-                  We read every paper&rsquo;s summary, then distill the most
-                  explored directions and the most promising open ones.
+                  Derived from the summary cards for this run: a concise inventory
+                  of established directions, followed by a shorter list of
+                  opportunities for further work.
                 </p>
               </div>
               <button
@@ -1652,25 +1640,24 @@ export default function Home() {
                 }}
               >
                 {runningIdeation
-                  ? "Synthesizing…"
+                  ? "Running…"
                   : ideation &&
                       (ideation.exploredDirections.length > 0 ||
                         ideation.futureDirections.length > 0)
-                    ? "Rerun"
-                    : "Synthesize"}
+                    ? "Again"
+                    : "Run"}
               </button>
               <span
-                className="text-[12px] italic"
+                className="text-[12px] leading-snug"
                 style={{
                   color: "var(--text-faint)",
-                  fontFamily: "var(--font-serif-stack)",
                 }}
               >
                 {ideation &&
                 (ideation.exploredDirections.length > 0 ||
                   ideation.futureDirections.length > 0)
-                  ? "Latest synthesis below."
-                  : "No synthesis yet for this run."}
+                  ? "Results from the most recent run appear below."
+                  : "This step has not been run for the current search."}
               </span>
             </div>
 
@@ -1678,7 +1665,7 @@ export default function Home() {
               className="mb-7 pt-5"
               style={{ borderTop: "1px solid var(--line)" }}
             >
-              <div className="label-eyebrow mb-3">Most explored</div>
+              <div className="label-eyebrow mb-3">Established directions</div>
               <ol
                 className="list-decimal space-y-2.5 pl-5 text-[14px] leading-relaxed"
                 style={{ color: "var(--text)" }}
@@ -1692,7 +1679,7 @@ export default function Home() {
                     className="list-none italic"
                     style={{ color: "var(--text-faint)" }}
                   >
-                    Run Synthesize to generate directions.
+                    Run the action above once summary cards have been generated.
                   </li>
                 )}
               </ol>
@@ -1702,7 +1689,7 @@ export default function Home() {
               className="pt-5"
               style={{ borderTop: "1px solid var(--line)" }}
             >
-              <div className="label-eyebrow mb-3">Most promising</div>
+              <div className="label-eyebrow mb-3">Further opportunities</div>
               <ol
                 className="list-decimal space-y-2.5 pl-5 text-[14px] leading-relaxed"
                 style={{ color: "var(--text)" }}
@@ -1716,7 +1703,7 @@ export default function Home() {
                     className="list-none italic"
                     style={{ color: "var(--text-faint)" }}
                   >
-                    No future directions generated yet.
+                    No output yet, or the model did not return this section.
                   </li>
                 )}
               </ol>

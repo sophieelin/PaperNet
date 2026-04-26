@@ -58,16 +58,17 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-/* Display serif (Playfair) for headlines and titles. */
+/* Playfair for headlines, paper titles, and editorial chrome. */
 .font-serif {
   font-family: var(--font-serif-stack);
   font-feature-settings: "kern" 1, "liga" 1;
 }
 
-/* Tracked monospace small-caps for section labels. */
+/* Tracked uppercase labels (same stack as body for consistency). */
 .label-eyebrow {
-  font-family: var(--font-mono-stack);
+  font-family: var(--font-sans-stack);
   font-size: 10px;
+  font-weight: 500;
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--text-faint);
@@ -223,7 +224,7 @@ body {
   box-shadow: inset 0 0 0 1px rgba(212, 165, 116, 0.25);
 }
 
-/* “Suggested topics” line — Playfair, not mono, so the panel is one family. */
+/* “Suggested topics” line — Playfair, aligned with the hero. */
 .topic-bubbles-title {
   font-family: var(--font-serif-stack);
   font-size: 11px;

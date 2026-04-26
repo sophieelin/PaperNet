@@ -56,16 +56,19 @@ export async function POST(request: Request) {
         messages: [
           {
             role: "system",
-            content:
-              "You synthesize research landscapes. Return concise, non-redundant bullets grounded in provided summaries.",
+            content: [
+              "You turn a pile of paper summaries into two flat lists.",
+              "Be plain and specific. No rhetorical questions, no hype, no 'delve' or 'leverage' speak.",
+              "Do not use em dashes. Use a comma, period, or 'and' instead.",
+            ].join(" "),
           },
           {
             role: "user",
             content: [
-              "From the research summaries below, output JSON with keys:",
-              "- exploredDirections: array of 1-10 strings describing major directions already explored/tried.",
-              "- futureDirections: array of 3-5 strings describing most promising directions to build on next.",
-              "Keep each bullet to one sentence.",
+              "From the text below, return JSON with:",
+              "exploredDirections: 1-10 one-sentence items about what this corpus already does or repeats.",
+              "futureDirections: 3-5 one-sentence items that look like good next steps. Ground them in the text.",
+              "No em dashes in any string.",
               "",
               corpus,
             ].join("\n"),

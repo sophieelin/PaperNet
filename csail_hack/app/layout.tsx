@@ -12,8 +12,6 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-// Display serif for branding, paper titles, and editorial blocks. UI body
-// copy stays on Geist Sans for legibility at small sizes.
 const playfair = Playfair_Display({
   variable: "--font-serif",
   subsets: ["latin"],
