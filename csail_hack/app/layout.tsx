@@ -24,6 +24,10 @@ export const metadata: Metadata = {
   title: "PaperNet",
   description:
     "An archival map of recent research and the references that shape it.",
+  icons: {
+    icon: "/paperNetIcon.PNG",
+    apple: "/paperNetIcon.PNG",
+  },
 };
 
 export default function RootLayout({

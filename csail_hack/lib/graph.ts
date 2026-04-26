@@ -809,11 +809,11 @@ export function buildCitationGraph(
         childIdx !== undefined &&
         parentIdx === childIdx;
       return {
-        id: `e:${selection.parentId}->${child.id}`,
-        source: selection.parentId,
-        target: child.id,
+      id: `e:${selection.parentId}->${child.id}`,
+      source: selection.parentId,
+      target: child.id,
         type: "simplebezier" as const,
-        animated: false,
+      animated: false,
         style: {
           stroke: sameCluster ? color : NEUTRAL_EDGE,
           strokeWidth: sameCluster ? 1.6 : 0.8,

@@ -83,6 +83,67 @@ const sourceLabel = (paper: ResearchPaper) => {
   return "Cited paper";
 };
 
+/**
+ * Summary cards may store http, protocol-relative, entity-encoded, or relative
+ * figure URLs. Normalize so <img> can load on localhost and over HTTPS.
+ */
+function resolveFigureImageUrl(url: string, paper: ResearchPaper): string {
+  let u = url.trim();
+  if (!u) return u;
+  u = u.replace(/&amp;/g, "&");
+  if (u.startsWith("//")) u = `https:${u}`;
+  else if (u.startsWith("http://")) u = `https://${u.slice(7)}`;
+  u = u.replace("export.arxiv.org", "arxiv.org");
+  if (/^https?:\/\//i.test(u)) return normalizeArxivHtmlPathInUrl(u);
+  const base =
+    paper.htmlUrl?.trim() ||
+    (paper.arxivId ? `https://arxiv.org/html/${paper.arxivId}/` : undefined) ||
+    paper.url?.trim() ||
+    "https://arxiv.org/";
+  try {
+    return normalizeArxivHtmlPathInUrl(new URL(u, base).toString());
+  } catch {
+    return u;
+  }
+}
+
+/** Matches lib/agents/figures: de-dupe /html/{id}/{id}/... in arXiv HTML image paths. */
+function normalizeArxivHtmlPathInUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname !== "arxiv.org" && !parsed.hostname.endsWith(".arxiv.org")) {
+      return url;
+    }
+    const segments = parsed.pathname.split("/").filter(Boolean);
+    const withHtml = segments[0] === "html" ? segments : ["html", ...segments];
+    if (withHtml.length >= 3 && withHtml[0] === "html" && withHtml[1] === withHtml[2]) {
+      withHtml.splice(2, 1);
+      parsed.pathname = `/${withHtml.join("/")}`;
+      return parsed.toString();
+    }
+  } catch {
+    /* keep url */
+  }
+  return url;
+}
+
+/** Same-origin arXiv image URL so the browser is not blocked by hotlink/Referer rules. */
+function figureImageDisplayUrl(url: string, paper: ResearchPaper): string {
+  const resolved = resolveFigureImageUrl(url, paper);
+  if (!resolved.startsWith("http")) return resolved;
+  try {
+    const p = new URL(resolved);
+    if (p.protocol !== "http:" && p.protocol !== "https:") return resolved;
+    const h = p.hostname;
+    if (h === "arxiv.org" || h.endsWith(".arxiv.org")) {
+      return `/api/research/figure-image?url=${encodeURIComponent(p.toString())}`;
+    }
+  } catch {
+    /* fall through */
+  }
+  return resolved;
+}
+
 // These must match SEED_NODE_SIZE / CITATION_NODE_SIZE in lib/graph.ts so
 // dagre reserves the right amount of layout space for them.
 const SEED_DIAMETER = 132;
@@ -386,7 +447,7 @@ function DetailPanel({
                     }}
                   >
                     <img
-                      src={figure.imageUrl}
+                      src={figureImageDisplayUrl(figure.imageUrl, paper)}
                       alt={figure.caption ?? `Figure ${index + 1}`}
                       className="block w-full object-contain"
                       style={{ background: "#ffffff" }}
@@ -626,7 +687,17 @@ function Masthead({
             <path d="M3 6h18M3 12h18M3 18h18" />
           </svg>
         </button>
-        <div className="flex items-baseline gap-2">
+        <div className="flex items-center gap-2.5">
+          <img
+            src="/paperNetIcon.PNG"
+            alt=""
+            width={24}
+            height={24}
+            className="h-6 w-6 shrink-0 object-contain"
+            style={{ filter: "invert(1)" }}
+            loading="eager"
+            aria-hidden
+          />
           <span className="font-serif text-[18px] font-semibold leading-none tracking-tight text-[color:var(--text)]">
             PaperNet
           </span>
@@ -706,7 +777,7 @@ function SubtopicLegend({
   if (subtopics.length === 0 && !showSemanticLegend) return null;
   return (
     <aside
-      className="pointer-events-auto absolute left-5 top-[68px] z-20 flex w-[260px] flex-col gap-px border text-[12px]"
+      className="pointer-events-auto absolute left-5 top-[68px] z-20 flex w-max min-w-[260px] max-w-[min(calc(100vw-2.5rem),400px)] flex-col gap-px border text-[12px]"
       style={{
         background: "var(--bg-elev)",
         borderColor: "var(--line)",
@@ -732,23 +803,24 @@ function SubtopicLegend({
               type="button"
               onMouseEnter={() => onHover(topic.color)}
               onMouseLeave={() => onHover(null)}
-              className="flex items-center gap-2.5 px-3 py-1.5 text-left transition hover:bg-white/5"
+              className="flex items-start gap-2.5 px-3 py-1.5 text-left transition hover:bg-white/5"
               style={{ opacity: isActive ? 1 : 0.4 }}
               aria-label={`${topic.label}: ${total} papers`}
             >
               <span
-                className="inline-block h-[7px] w-[7px] shrink-0 rounded-sm"
+                className="mt-1.5 inline-block h-[7px] w-[7px] shrink-0 self-start rounded-sm"
                 style={{ background: topic.color }}
                 aria-hidden
               />
               <span
-                className="min-w-0 truncate"
+                className="min-w-0 flex-1 break-words pr-1"
                 style={{ color: "var(--text)" }}
+                title={topic.label}
               >
                 {topic.label}
               </span>
               <span
-                className="ml-auto shrink-0 pl-1 text-[10px] tabular-nums leading-none"
+                className="shrink-0 self-start pl-0.5 text-[10px] tabular-nums leading-snug"
                 style={{ color: "var(--text)" }}
                 title={`${total} paper${total === 1 ? "" : "s"} in this topic`}
               >

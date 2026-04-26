@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type { Edge, Node } from "@xyflow/react";
 import { buildSummaryCard } from "@/lib/agents";
 import { buildCitationGraph } from "@/lib/graph";
-import { clusterPapersWithOpenAI } from "@/lib/openaiClustering2";
+import { clusterPapersWithTitleVectors } from "@/lib/openaiClustering2";
 import type { GraphNodeData, ResearchPaper } from "@/lib/papers";
 import { fetchTopCitationsForSeeds, searchSupportedPapers } from "@/lib/semanticScholar";
 import { readRunData, writeRunData } from "@/lib/storage";
@@ -199,7 +199,7 @@ export async function POST(request: Request) {
 
     const mergedSeeds = [...newSeeds, ...currentSeeds];
     const { selections, dedupedChildren } = await fetchTopCitationsForSeeds(mergedSeeds, 3);
-    const llmClusters = await clusterPapersWithOpenAI(query, mergedSeeds, dedupedChildren);
+    const llmClusters = await clusterPapersWithTitleVectors(query, mergedSeeds, dedupedChildren);
     const graph = buildCitationGraph(
       mergedSeeds,
       selections,

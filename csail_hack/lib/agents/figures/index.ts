@@ -269,7 +269,11 @@ export async function runFiguresAgent(input: AgentInput): Promise<FiguresResult>
   const selection = await selectFigureWithOpenAI(input, candidates).catch(() => undefined);
   if (!selection?.selectedImageUrl) return { figures: [] };
 
-  const selected = candidates.find((candidate) => candidate.imageUrl === selection.selectedImageUrl);
+  const de = (s: string) => s.replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
+  const want = de(selection.selectedImageUrl);
+  const selected = candidates.find(
+    (c) => c.imageUrl === selection.selectedImageUrl || de(c.imageUrl) === want,
+  );
   if (!selected) return { figures: [] };
 
   return {
