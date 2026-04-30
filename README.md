@@ -1,12 +1,12 @@
 # PaperNet — Dynamic Multi-Agent Knowledge Graph
-## CSAIL Agentic AI Hackathon
+## CSAIL Agentic AI Hackathon Runner-Up Award
 
 ## Authors
 
-- **Sophie Lin** — [sophlin@mit.edu](mailto:sophlin@mit.edu) — Wellesley College ’27
-- **Shrenik Patel** — [shrenik.d.patel@gmail.com](mailto:shrenik.d.patel@gmail.com) — Rutgers University ’26
-- **Han Nguyen** — [hn103@wellesley.edu](mailto:hn103@wellesley.edu) — Wellesley College ’27
-- **Kenneth Xiong** — [kxiong@olin.edu](mailto:kxiong@olin.edu) — Olin College ’27
+- **Sophie Lin** — [sophlin@mit.edu](mailto:sophlin@mit.edu) 
+- **Shrenik Patel** — [shrenik.d.patel@gmail.com](mailto:shrenik.d.patel@gmail.com) 
+- **Han Nguyen** — [hn103@wellesley.edu](mailto:hn103@wellesley.edu)
+- **Kenneth Xiong** — [kxiong@olin.edu](mailto:kxiong@olin.edu) 
 
 A multi-agent system that continuously builds a living research graph by discovering, structuring, and synthesizing papers to reveal methods, citation lineages, emerging directions, and open problems.
 
@@ -33,9 +33,13 @@ Custom agent harness and reasoning engine powered by **GPT‑5 series**, **React
 
 ## Autonomous Features
 
-- Discovers relevant papers from the user’s research query and filters them to supported sources such as arXiv and ACM.
-- Expands the graph by recursively retrieving citations and references from the initial paper set, then ranks and retains the most relevant and high-impact works using signals such as citation count, influential citations, and topical fit.
-- Automatically maintains the research graph by adding new papers, restructuring clusters, generating summary cards, selecting representative figures, and inferring semantic edges between related papers.
+- Discovers relevant papers based on a user’s research query, filtering for trusted sources such as arXiv and ACM
+- Expands the graph by recursively retrieving citations and references from the initial set of papers, then ranks and retains the most relevant and high-impact works using signals such as citation count, influential citations, and topical relevance
+- Generates summary cards by selecting the most important figure(s) in each paper and summarizing key elements including methodology, results, future work, and an easy-to-use BibTeX citation
+- Connects nodes with semantically meaningful edges such as builds on, similar approach, and contrasting approach
+- Clusters papers semantically using vector embeddings and a k-means clustering algorithm, enabling structured organization and easy traversal of the research space
+- Continously maintains the research graph by adding new papers, restructuring clusters, generating summary cards, selecting representative figures, and inferring semantic edges between related papers
+- Includes an ideation component to surface emerging trends and aggregate potential future research directions
 
 ---
 
